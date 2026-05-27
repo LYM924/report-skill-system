@@ -59,6 +59,7 @@ def main():
     print(f"Generated: {output_file}")
 
     if args.pdf:
+        sys.path.insert(0, str(ROOT))
         from scripts.export_pdf import md_to_pdf
         pdf_path = md_to_pdf(output_file)
         print(f"PDF exported: {pdf_path}")
