@@ -1,0 +1,28 @@
+site_name: 产品知识库
+site_description: 产品需求与问题知识库
+theme:
+  name: material
+  language: zh
+  features:
+    - navigation.sections
+    - navigation.expand
+    - search.suggest
+    - search.highlight
+plugins:
+  - search
+markdown_extensions:
+  - pymdownx.superfences
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - toc:
+      permalink: true
+nav:
+  - 首页: index.md
+  - 需求知识库:
+      - 总览: requirements/index.md
+  - 问题知识库:
+      - 总览: issues/index.md
+  - 工作报告:
+      - 周报: reports/weekly/
+      - 月报: reports/monthly/
+      - 半年报: reports/semiannual/
