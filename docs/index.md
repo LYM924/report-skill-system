@@ -4,6 +4,6 @@
 
 ## 快速导航
 
-- [需求知识库](requirements/) — 按模块整理的产品需求文档
-- [问题知识库](issues/) — 问题记录与经验沉淀
-- [工作报告](reports/) — 周报、月报、半年报归档
+- [需求知识库](requirements/index.md) — 按模块整理的产品需求文档
+- [问题知识库](issues/index.md) — 问题记录与经验沉淀
+- [工作报告](reports/weekly/index.md) — 周报、月报、半年报归档

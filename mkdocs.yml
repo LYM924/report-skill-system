@@ -23,6 +23,6 @@ nav:
   - 问题知识库:
       - 总览: issues/index.md
   - 工作报告:
-      - 周报: reports/weekly/
-      - 月报: reports/monthly/
-      - 半年报: reports/semiannual/
+      - 周报: reports/weekly/index.md
+      - 月报: reports/monthly/index.md
+      - 半年报: reports/semiannual/index.md

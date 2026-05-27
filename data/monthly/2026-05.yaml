@@ -1,0 +1,26 @@
+period: "2026年5月"
+modules:
+  - name: "用户中心"
+    completed: 3
+    in_progress: 2
+    blocked: 0
+    issues_resolved: 5
+    issues_new: 2
+    highlights:
+      - "SSO 单点登录完成开发和测试"
+      - "用户画像功能上线"
+    next_month:
+      - "权限管理模块重构"
+      - "账号注销流程开发"
+  - name: "订单系统"
+    completed: 2
+    in_progress: 1
+    blocked: 1
+    issues_resolved: 3
+    issues_new: 1
+    highlights:
+      - "退款流程优化上线"
+    next_month:
+      - "批量发货功能上线"
+      - "物流接口升级"
+summary: "本月整体进度良好，用户中心 SSO 功能顺利上线，订单系统物流接口存在延迟需要关注。"
