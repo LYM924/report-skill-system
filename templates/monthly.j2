@@ -1,0 +1,33 @@
+# 月报 — {{ period }}
+
+## 各模块数据总览
+
+| 模块 | 本月完成 | 进行中 | 阻塞 | 问题已解决 | 新增问题 |
+|------|----------|--------|------|------------|----------|
+{% for module in modules %}| {{ module.name }} | {{ module.completed }} | {{ module.in_progress }} | {{ module.blocked }} | {{ module.issues_resolved }} | {{ module.issues_new }} |
+{% endfor %}
+
+## 各模块详情
+
+{% for module in modules %}
+### {{ module.name }}
+
+**本月亮点：**
+{% for h in module.highlights %}
+- {{ h }}
+{% else %}
+- 无
+{% endfor %}
+
+**下月计划：**
+{% for p in module.next_month %}
+- {{ p }}
+{% else %}
+- 无
+{% endfor %}
+
+{% endfor %}
+
+## 总结
+
+{{ summary }}

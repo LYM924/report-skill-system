@@ -1,0 +1,28 @@
+# 半年报 — {{ period }}
+
+## 各模块总览
+
+| 模块 | 需求总数 | 问题总数 | 里程碑 |
+|------|----------|----------|--------|
+{% for module in modules %}| {{ module.name }} | {{ module.total_requirements }} | {{ module.total_issues }} | {% for m in module.milestone %}{{ m }}{% if not loop.last %}, {% endif %}{% else %}-{% endfor %} |
+{% endfor %}
+
+## 各模块详情
+
+{% for module in modules %}
+### {{ module.name }}
+
+**趋势分析：** {{ module.trend }}
+
+**关键里程碑：**
+{% for m in module.milestone %}
+- {{ m }}
+{% else %}
+- 无
+{% endfor %}
+
+{% endfor %}
+
+## 总结
+
+{{ summary }}

@@ -1,0 +1,18 @@
+# 周报 — {{ period }}
+
+## 本周进展
+
+{% for module in modules %}
+### {{ module.name }}
+
+| 类型 | 内容 |
+|------|------|
+| 已完成 | {% for item in module.done %}- {{ item }}{% if not loop.last %}<br>{% endif %}{% else %}-{% endfor %} |
+| 下周计划 | {% for item in module.next %}- {{ item }}{% if not loop.last %}<br>{% endif %}{% else %}-{% endfor %} |
+| 风险 | {% for item in module.risks %}- {{ item }}{% if not loop.last %}<br>{% endif %}{% else %}无{% endfor %} |
+
+{% endfor %}
+
+## 总结
+
+{{ summary }}
