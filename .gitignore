@@ -2,3 +2,17 @@ site/
 __pycache__/
 *.pyc
 *.pdf
+
+# macOS
+.DS_Store
+
+# 敏感原始数据
+AiClaudeProject/原始报表文档/
+
+# 已生成的报表（含实际数据）
+AiClaudeProject/*_报表管理系统/
+
+# 临时文件
+skills-lock.json
+weasyprint-66.0-py3-none-any.whl
+~$*

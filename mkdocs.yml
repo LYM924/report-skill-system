@@ -20,9 +20,17 @@ nav:
   - 首页: index.md
   - 需求知识库:
       - 总览: requirements/index.md
+      - 用户中心:
+          - SSO单点登录: requirements/user-center/2026-05-27-sso单点登录.md
+      - 浙里报:
+          - 271140 绍兴公车公车服务采购申请单移动端审批: requirements/浙里报/2026-05-27-271140-绍兴公车公车服务采购申请单移动端审批.md
   - 问题知识库:
       - 总览: issues/index.md
+      - 订单系统:
+          - 支付回调超时: issues/order-system/2026-05-27-支付回调超时.md
   - 工作报告:
-      - 周报: reports/weekly/index.md
-      - 月报: reports/monthly/index.md
-      - 半年报: reports/semiannual/index.md
+      - 周报总览: reports/weekly/index.md
+      - 2026-W22 周报: reports/weekly/2026-W22.md
+      - 月报总览: reports/monthly/index.md
+      - 2026-05 月报: reports/monthly/2026-05.md
+      - 半年报总览: reports/semiannual/index.md
