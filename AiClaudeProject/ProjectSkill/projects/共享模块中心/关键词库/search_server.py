@@ -189,7 +189,8 @@ class SearchHandler(SimpleHTTPRequestHandler):
 
         model = os.environ.get("CLAUDE_MODEL",
                  os.environ.get("ANTHROPIC_DEFAULT_SONNET_MODEL",
-                 "claude-sonnet-4-20250514"))
+                 os.environ.get("ANTHROPIC_MODEL",
+                 "claude-sonnet-4-20250514")))
         system_prompt = context.get("system", "")
         messages = context.get("messages", [{"role": "user", "content": query}])
 
