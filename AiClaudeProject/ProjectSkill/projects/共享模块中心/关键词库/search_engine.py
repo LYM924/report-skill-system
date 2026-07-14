@@ -633,6 +633,11 @@ class SearchEngine:
                 })
 
         # 深度搜索 KB（复用已有逻辑，但不生成 answer，只取上下文）
+        # 计算分词和扩展词，确保深度搜索有匹配词可用
+        tokens = list(jieba.cut(query))
+        tokens = [t.strip() for t in tokens if len(t.strip()) >= 1]
+        expanded = self._expand_tokens(tokens) if tokens else set()
+
         kb_sections = []
         kb_files_searched = []
         priority_dirs = []
@@ -643,14 +648,14 @@ class SearchEngine:
                     priority_dirs.append(kb_dir)
         if priority_dirs or results:
             kb_sections, kb_files_searched, _ = self._deep_search_kb(
-                query, set(), results, priority_dirs
+                query, expanded, results, priority_dirs
             )
 
         # 搜索原始产品文档
-        raw_doc_sections = self._search_raw_docs(query, set())
+        raw_doc_sections = self._search_raw_docs(query, expanded)
 
         # 搜索报表
-        report_sections = self._search_reports_deep(query, set(), results)
+        report_sections = self._search_reports_deep(query, expanded, results)
 
         # 组装 system prompt
         system_parts = [
