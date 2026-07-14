@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>产品知识库 · 智能检索</title>
+<style>
+  :root {
+    --bg: #0b0f19;
+    --bg-card: #131824;
+    --bg-input: #1a1f2e;
+    --border: #1e2640;
+    --text: #e2e8f0;
+    --text-muted: #7b8ba8;
+    --text-dim: #4a5568;
+    --accent: #6c8cff;
+    --accent-glow: rgba(108, 140, 255, 0.15);
+    --kw: #4da6ff;    --kw-bg: rgba(77, 166, 255, 0.1);
+    --mod: #3dd68c;   --mod-bg: rgba(61, 214, 140, 0.1);
+    --menu: #f0b849;  --menu-bg: rgba(240, 184, 73, 0.1);
+    --kb: #c084fc;    --kb-bg: rgba(192, 132, 252, 0.1);
+    --report: #fb7185; --report-bg: rgba(251, 113, 133, 0.1);
+    --radius: 12px; --radius-sm: 8px;
+    --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  body::before {
+    content: ''; position: fixed; inset: 0;
+    background:
+      radial-gradient(ellipse 80% 60% at 50% -20%, rgba(108,140,255,0.06), transparent),
+      radial-gradient(ellipse 60% 40% at 80% 80%, rgba(192,132,252,0.04), transparent);
+    pointer-events: none; z-index: 0;
+  }
+  .container { max-width: 900px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 1; }
+
+  /* Header */
+  header { text-align: center; padding: 60px 0 32px; }
+  header h1 { font-size: 2rem; font-weight: 700; letter-spacing: -0.03em; background: linear-gradient(135deg, #e2e8f0 0%, #a0aec0 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 8px; }
+  header p { color: var(--text-muted); font-size: 0.95rem; }
+  .stats-bar { display: flex; justify-content: center; gap: 28px; margin-top: 16px; font-size: 0.8rem; color: var(--text-dim); }
+  .stats-bar span { display: flex; align-items: center; gap: 6px; }
+  .stats-bar .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+
+  /* Search */
+  .search-wrapper { position: relative; margin-bottom: 28px; }
+  .search-box { display: flex; align-items: center; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius); padding: 0 20px; transition: border-color 0.2s, box-shadow 0.2s; }
+  .search-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+  .search-box .icon { color: var(--text-dim); flex-shrink: 0; margin-right: 12px; }
+  .search-box input { flex: 1; background: none; border: none; outline: none; color: var(--text); font-size: 1.05rem; font-family: var(--font); padding: 16px 0; }
+  .search-box input::placeholder { color: var(--text-dim); }
+  .search-box .shortcut { color: var(--text-dim); font-size: 0.75rem; font-family: var(--font-mono); background: rgba(255,255,255,0.04); padding: 3px 8px; border-radius: 4px; border: 1px solid var(--border); flex-shrink: 0; }
+
+  .quick-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 28px; justify-content: center; }
+  .quick-actions button { background: var(--bg-card); border: 1px solid var(--border); color: var(--text-muted); padding: 6px 16px; border-radius: 20px; font-size: 0.8rem; cursor: pointer; font-family: var(--font); transition: all 0.15s; }
+  .quick-actions button:hover { border-color: var(--accent); color: var(--text); background: var(--bg-input); }
+
+  .search-info { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; font-size: 0.85rem; color: var(--text-muted); }
+  .search-info .tokens { display: flex; gap: 6px; flex-wrap: wrap; }
+  .search-info .token { background: var(--bg-input); border: 1px solid var(--border); padding: 2px 10px; border-radius: 20px; font-size: 0.8rem; font-family: var(--font-mono); color: var(--text-muted); }
+  .search-info .count { color: var(--accent); font-weight: 600; }
+
+  /* Status */
+  .status { text-align: center; padding: 40px 0; color: var(--text-muted); font-size: 0.95rem; }
+  .status .empty-icon { font-size: 3rem; display: block; margin-bottom: 12px; opacity: 0.3; }
+  .loading { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 40px 0; color: var(--text-muted); }
+  .loading .spinner { width: 20px; height: 20px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.6s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Results */
+  .results { display: flex; flex-direction: column; gap: 10px; }
+  .result-card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 18px 22px;
+    cursor: pointer; transition: border-color 0.2s, transform 0.15s, box-shadow 0.2s;
+    animation: fadeIn 0.3s ease both;
+  }
+  .result-card:hover { border-color: rgba(255,255,255,0.15); transform: translateY(-1px); box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+  .result-card:active { transform: scale(0.995); }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+  .result-card .card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+  .result-card .card-title { font-weight: 600; font-size: 1rem; color: var(--text); letter-spacing: -0.01em; }
+  .badge { flex-shrink: 0; font-size: 0.7rem; font-weight: 600; padding: 3px 10px; border-radius: 20px; letter-spacing: 0.02em; text-transform: uppercase; }
+  .badge-kw { color: var(--kw); background: var(--kw-bg); }
+  .badge-mod { color: var(--mod); background: var(--mod-bg); }
+  .badge-menu { color: var(--menu); background: var(--menu-bg); }
+  .badge-kb { color: var(--kb); background: var(--kb-bg); }
+  .badge-report { color: var(--report); background: var(--report-bg); }
+  .badge-answer { color: #f0b849; background: rgba(240, 184, 73, 0.12); font-size: 0.72rem; }
+
+  .result-card .card-meta { display: flex; flex-wrap: wrap; gap: 16px; font-size: 0.82rem; color: var(--text-muted); }
+  .result-card .card-meta span { display: flex; align-items: center; gap: 4px; }
+  .result-card .card-meta .label { color: var(--text-dim); font-size: 0.75rem; }
+  .result-card .score { font-size: 0.7rem; font-family: var(--font-mono); color: var(--text-dim); background: rgba(255,255,255,0.03); padding: 2px 8px; border-radius: 4px; }
+  .result-card .card-hint { font-size: 0.75rem; color: var(--text-dim); margin-top: 6px; }
+
+  /* Answer Card */
+  .answer-card {
+    background: linear-gradient(135deg, rgba(108,140,255,0.06) 0%, rgba(192,132,252,0.04) 100%);
+    border: 1px solid rgba(108,140,255,0.25);
+    border-radius: var(--radius); padding: 24px 28px;
+    animation: fadeIn 0.4s ease both;
+    position: relative; overflow: hidden;
+  }
+  .answer-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, var(--accent), #c084fc, #f0b849);
+  }
+  .answer-card .answer-header {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
+  }
+  .answer-card .answer-icon {
+    width: 36px; height: 36px; border-radius: 10px;
+    background: linear-gradient(135deg, rgba(108,140,255,0.2), rgba(192,132,252,0.2));
+    display: flex; align-items: center; justify-content: center; font-size: 1.1rem;
+  }
+  .answer-card .answer-label {
+    font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--accent); margin-bottom: 2px;
+  }
+  .answer-card .answer-title {
+    font-size: 1.1rem; font-weight: 600; color: var(--text); letter-spacing: -0.01em;
+  }
+  .answer-card .answer-body { display: flex; flex-direction: column; gap: 10px; }
+  .answer-card .answer-summary {
+    font-size: 0.9rem; color: var(--text); line-height: 1.85;
+  }
+  .answer-card .answer-summary p { margin: 0.5em 0; }
+  .answer-card .answer-summary strong { color: #fff; }
+  .answer-card .answer-summary code {
+    background: rgba(255,255,255,0.06); padding: 1px 6px; border-radius: 4px;
+    font-family: var(--font-mono); font-size: 0.85em; color: var(--accent);
+  }
+  .answer-card .answer-tags {
+    display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; padding-top: 12px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+  }
+  .answer-card .answer-tag {
+    font-size: 0.75rem; padding: 3px 10px; border-radius: 20px;
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+    color: var(--text-muted); cursor: default;
+  }
+  .answer-card .answer-tag.kw { color: var(--kw); border-color: rgba(77,166,255,0.15); }
+  .answer-card .answer-gallery {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px; margin: 8px 0;
+  }
+  .answer-card .answer-gallery-item {
+    border-radius: var(--radius-sm); overflow: hidden;
+    border: 1px solid var(--border); background: rgba(0,0,0,0.2);
+  }
+  .answer-card .answer-gallery-item img {
+    width: 100%; display: block; object-fit: contain;
+  }
+  .answer-card .answer-gallery-caption {
+    display: block; padding: 6px 10px; font-size: 0.75rem;
+    color: var(--text-muted); text-align: center;
+  }
+  .answer-card .answer-section {
+    display: flex; gap: 12px; padding: 8px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+  .answer-card .answer-section:last-child { border-bottom: none; }
+  .answer-card .answer-section .as-label {
+    flex-shrink: 0; min-width: 120px; font-size: 0.78rem; font-weight: 600;
+    color: var(--text-muted); white-space: nowrap;
+  }
+  .answer-card .answer-section .as-content {
+    font-size: 0.88rem; color: var(--text); line-height: 1.7; white-space: pre-line;
+  }
+  .answer-card .answer-section .as-content code {
+    background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px;
+    font-family: var(--font-mono); font-size: 0.82em;
+  }
+  .answer-card .answer-divider {
+    display: flex; align-items: center; gap: 12px; margin: 16px 0 8px;
+    font-size: 0.75rem; color: var(--text-dim); letter-spacing: 0.03em;
+  }
+  .answer-card .answer-divider::after {
+    content: ''; flex: 1; height: 1px; background: var(--border);
+  }
+
+  /* Process Panel */
+  .process-panel {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); margin-bottom: 10px; overflow: hidden;
+    animation: fadeIn 0.3s ease both;
+  }
+  .process-toggle {
+    display: flex; align-items: center; gap: 8px; padding: 12px 20px;
+    cursor: pointer; font-size: 0.82rem; color: var(--text-muted);
+    user-select: none; transition: background 0.15s;
+  }
+  .process-toggle:hover { background: rgba(255,255,255,0.02); }
+  .process-toggle .arrow { transition: transform 0.2s; font-size: 0.7rem; }
+  .process-toggle.open .arrow { transform: rotate(90deg); }
+  .process-body { display: none; padding: 0 20px 16px; }
+  .process-body.open { display: block; }
+  .process-layer {
+    margin-bottom: 14px; padding-left: 16px;
+    border-left: 2px solid var(--border);
+  }
+  .process-layer.l1 { border-left-color: var(--kw); }
+  .process-layer.l2 { border-left-color: var(--mod); }
+  .process-layer.l3 { border-left-color: var(--accent); }
+  .process-layer .layer-title {
+    font-size: 0.8rem; font-weight: 600; color: var(--text); margin-bottom: 6px;
+  }
+  .process-layer .layer-detail {
+    font-size: 0.75rem; color: var(--text-muted); line-height: 1.7;
+  }
+  .process-layer .layer-detail .chip {
+    display: inline-block; background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+    padding: 1px 8px; border-radius: 12px; margin: 2px 3px;
+    font-size: 0.72rem; font-family: var(--font-mono);
+  }
+  .process-layer .layer-detail .chip.hl { color: var(--accent); border-color: rgba(108,140,255,0.2); }
+  .process-layer .layer-detail .section-item {
+    padding: 4px 0; font-size: 0.73rem;
+  }
+  .process-layer .layer-detail .section-item .score {
+    font-size: 0.65rem; color: var(--accent); margin-right: 4px;
+    font-family: var(--font-mono);
+  }
+
+  @media (max-width: 640px) {
+    .answer-card { padding: 16px 18px; }
+    .answer-card .answer-section { flex-direction: column; gap: 2px; }
+    .answer-card .answer-section .as-label { min-width: auto; }
+  }
+
+  /* Detail Panel */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    z-index: 100; display: flex; align-items: flex-start; justify-content: center;
+    padding: 40px 20px; overflow-y: auto;
+    animation: overlayIn 0.2s ease;
+  }
+  @keyframes overlayIn { from { opacity: 0; } to { opacity: 1; } }
+
+  .detail-panel {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); width: 100%; max-width: 860px;
+    margin: auto; animation: panelIn 0.25s ease;
+    position: relative; overflow: hidden;
+  }
+  @keyframes panelIn { from { opacity: 0; transform: translateY(20px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+
+  .detail-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 28px; border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; background: var(--bg-card); z-index: 2;
+  }
+  .detail-header h2 { font-size: 1.15rem; font-weight: 600; color: var(--text); }
+  .detail-header .close-btn {
+    width: 32px; height: 32px; border: 1px solid var(--border); border-radius: 8px;
+    background: none; color: var(--text-muted); cursor: pointer; font-size: 1.1rem;
+    display: flex; align-items: center; justify-content: center; transition: all 0.15s;
+  }
+  .detail-header .close-btn:hover { border-color: var(--text-muted); color: var(--text); }
+
+  .detail-body { padding: 28px; }
+  .detail-body .meta-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px; margin-bottom: 24px;
+  }
+  .detail-body .meta-item {
+    background: rgba(255,255,255,0.02); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 12px 16px;
+  }
+  .detail-body .meta-item .mlabel { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
+  .detail-body .meta-item .mvalue { font-size: 0.9rem; color: var(--text); font-weight: 500; }
+
+  .detail-body .doc-content {
+    line-height: 1.8; color: var(--text); font-size: 0.93rem;
+  }
+  .detail-body .doc-content h1, .detail-body .doc-content h2, .detail-body .doc-content h3 {
+    color: var(--text); margin: 1.2em 0 0.5em; font-weight: 600;
+  }
+  .detail-body .doc-content h2 { font-size: 1.2rem; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  .detail-body .doc-content h3 { font-size: 1.05rem; }
+  .detail-body .doc-content p { margin: 0.6em 0; }
+  .detail-body .doc-content ul, .detail-body .doc-content ol { padding-left: 1.5em; margin: 0.5em 0; }
+  .detail-body .doc-content li { margin: 0.3em 0; }
+  .detail-body .doc-content table {
+    width: 100%; border-collapse: collapse; margin: 1em 0; font-size: 0.85rem;
+  }
+  .detail-body .doc-content th, .detail-body .doc-content td {
+    border: 1px solid var(--border); padding: 8px 12px; text-align: left;
+  }
+  .detail-body .doc-content th { background: rgba(255,255,255,0.03); font-weight: 600; color: var(--text-muted); }
+  .detail-body .doc-content img {
+    max-width: 100%; border-radius: var(--radius-sm); margin: 1em 0;
+    border: 1px solid var(--border);
+  }
+  .detail-body .doc-content a { color: var(--accent); text-decoration: none; }
+  .detail-body .doc-content a:hover { text-decoration: underline; }
+  .detail-body .doc-content code {
+    background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px;
+    font-family: var(--font-mono); font-size: 0.85em;
+  }
+  .detail-body .doc-content pre {
+    background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 16px; overflow-x: auto;
+    font-family: var(--font-mono); font-size: 0.85em; line-height: 1.5;
+  }
+  .detail-body .doc-content hr { border: none; border-top: 1px solid var(--border); margin: 1.5em 0; }
+  .detail-body .doc-content blockquote {
+    border-left: 3px solid var(--accent); padding: 4px 16px; margin: 1em 0;
+    color: var(--text-muted); background: rgba(108,140,255,0.03);
+  }
+
+  .detail-loading { text-align: center; padding: 60px; color: var(--text-muted); }
+
+  @media (max-width: 640px) {
+    header { padding: 40px 0 24px; }
+    header h1 { font-size: 1.5rem; }
+    .search-box input { font-size: 0.95rem; }
+    .result-card { padding: 14px 16px; }
+    .detail-body { padding: 20px; }
+    .detail-header { padding: 16px 20px; }
+    .detail-body .meta-grid { grid-template-columns: 1fr; }
+  }
+/* Claude Answer Card */
+  .claude-card {
+    background: linear-gradient(135deg, rgba(61,214,140,0.06) 0%, rgba(77,166,255,0.04) 100%);
+    border: 1px solid rgba(61,214,140,0.25);
+    border-radius: var(--radius); padding: 24px 28px;
+    animation: fadeIn 0.4s ease both;
+    position: relative; overflow: hidden;
+    margin-bottom: 10px;
+  }
+  .claude-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, #3dd68c, #4da6ff, #c084fc);
+  }
+  .claude-card .claude-header {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
+  }
+  .claude-card .claude-icon {
+    width: 36px; height: 36px; border-radius: 10px;
+    background: linear-gradient(135deg, rgba(61,214,140,0.2), rgba(77,166,255,0.2));
+    display: flex; align-items: center; justify-content: center; font-size: 1.1rem;
+  }
+  .claude-card .claude-label {
+    font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+    color: #3dd68c; margin-bottom: 2px;
+  }
+  .claude-card .claude-title {
+    font-size: 1.1rem; font-weight: 600; color: var(--text); letter-spacing: -0.01em;
+  }
+  .claude-card .claude-body {
+    font-size: 0.9rem; color: var(--text); line-height: 1.85;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .claude-card .claude-body p { margin: 0.5em 0; }
+  .claude-card .claude-body strong { color: #fff; }
+  .claude-card .claude-body code {
+    background: rgba(255,255,255,0.06); padding: 1px 6px; border-radius: 4px;
+    font-family: var(--font-mono); font-size: 0.85em; color: var(--accent);
+  }
+  .claude-card .claude-status {
+    display: flex; align-items: center; gap: 8px; margin-top: 12px;
+    padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.06);
+    font-size: 0.75rem; color: var(--text-dim);
+  }
+  .claude-card .claude-status.done { color: #3dd68c; }
+  .claude-card .claude-status.error { color: var(--report); }
+  .claude-cursor {
+    display: inline-block; width: 8px; height: 16px; background: #3dd68c;
+    animation: blink 0.8s infinite; vertical-align: middle; margin-left: 2px;
+  }
+  @keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <header>
+    <h1>产品知识库 · 智能检索</h1>
+    <p>输入问题或关键词，按 Enter 搜索，点击结果查看详情</p>
+    <div class="stats-bar" id="statsBar">
+      <span><span class="dot" style="background:var(--kw)"></span> <span id="statKw">-</span> 关键词</span>
+      <span><span class="dot" style="background:var(--mod)"></span> <span id="statMod">-</span> 模块</span>
+      <span><span class="dot" style="background:var(--kb)"></span> <span id="statKb">-</span> 知识库</span>
+      <span><span class="dot" style="background:var(--report)"></span> <span id="statReport">-</span> 报表</span>
+    </div>
+  </header>
+
+  <div class="quick-actions">
+    <button onclick="quickSearch('预算申报')">预算申报</button>
+    <button onclick="quickSearch('发票管理')">发票管理</button>
+    <button onclick="quickSearch('浙里报审批')">浙里报审批</button>
+    <button onclick="quickSearch('电子档案')">电子档案</button>
+    <button onclick="quickSearch('疫苗')">疫苗</button>
+    <button onclick="quickSearch('考勤')">考勤</button>
+    <button onclick="quickSearch('资产')">资产</button>
+  </div>
+
+  <div class="search-wrapper">
+    <div class="search-box" id="searchBox">
+      <svg class="icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="text" id="searchInput" placeholder="输入问题或关键词，按 Enter 搜索..." autofocus autocomplete="off">
+      <span class="shortcut">Enter</span>
+    </div>
+  </div>
+
+  <div id="searchInfo" class="search-info" style="display:none"></div>
+  <div id="results"></div>
+  <div id="status" class="status">
+    <span class="empty-icon">&#8984;</span>输入关键词，按 Enter 开始搜索产品知识库
+  </div>
+</div>
+
+<div id="overlayContainer"></div>
+
+<script>
+  const $ = s => document.querySelector(s);
+  const state = { query: '', results: [] };
+
+  // 加载统计
+  fetch('/api/stats').then(r => r.json()).then(d => {
+    $('#statKw').textContent = d.keywords;
+    $('#statMod').textContent = d.modules;
+    $('#statKb').textContent = d.kb_docs;
+    $('#statReport').textContent = d.report_docs;
+  });
+
+  // 搜索
+  $('#searchInput').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const q = this.value.trim();
+      if (!q) return;
+      state.query = q;
+      doSearch(q);
+    }
+  });
+
+  // 快捷键
+  document.addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      e.preventDefault();
+      $('#searchInput').focus();
+      $('#searchInput').select();
+    }
+    if (e.key === 'Escape') {
+      closeDetail();
+    }
+  });
+
+  // 事件委托：点击结果卡片
+  $('#results').addEventListener('click', function(e) {
+    const card = e.target.closest('.result-card');
+    if (!card) return;
+    const idx = parseInt(card.dataset.index);
+    if (!isNaN(idx) && state.results[idx]) {
+      openDetail(state.results[idx]);
+    }
+  });
+
+  function quickSearch(q) {
+    $('#searchInput').value = q;
+    $('#searchInput').focus();
+    state.query = q;
+    doSearch(q);
+  }
+
+  async function doSearch(q) {
+    showLoading();
+    try {
+      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&top=15`);
+      const data = await res.json();
+      renderResults(data);
+    } catch (e) {
+      $('#results').innerHTML = '';
+      $('#searchInfo').style.display = 'none';
+      $('#status').style.display = 'block';
+      $('#status').innerHTML = '<span class="empty-icon">&#9888;</span>搜索服务未连接，请确认服务已启动';
+    }
+  }
+
+  function renderResults(data) {
+    $('#status').style.display = 'none';
+    state.results = data.results || [];
+
+    const hasAnswer = data.answer && data.answer.module;
+    const totalCount = (data.results ? data.results.length : 0) + (hasAnswer ? 1 : 0);
+
+    if (!hasAnswer && (!data.results || data.results.length === 0)) {
+      $('#results').innerHTML = '';
+      $('#searchInfo').style.display = 'flex';
+      $('#searchInfo').innerHTML = `<span>未找到与 "<strong>${esc(data.query)}</strong>" 相关的结果，试试换个关键词</span>`;
+      return;
+    }
+
+    $('#searchInfo').style.display = 'flex';
+    $('#searchInfo').innerHTML = `
+      <span>共 <span class="count">${totalCount}</span> 条结果</span>
+      <span class="tokens">${(data.tokens||[]).map(t => `<span class="token">${esc(t)}</span>`).join('')}</span>
+    `;
+
+    let html = '';
+
+    // 第一条：智能回答卡片
+    if (hasAnswer) {
+      html += renderAnswerCard(data.answer);
+      // 过程可视化面板
+      if (data.process) {
+        html += renderProcessPanel(data.process);
+      }
+    }
+
+    // 后续结果：原有搜索结果卡片
+    const labels = {
+      keyword_index: ['关键词', 'badge-kw'],
+      module_name: ['模块', 'badge-mod'],
+      menu_match: ['菜单', 'badge-menu'],
+      knowledge_base: ['知识库', 'badge-kb'],
+      report_data: ['报表', 'badge-report'],
+    };
+
+    html += data.results.map((r, i) => {
+      const [label, badgeClass] = labels[r.source] || [r.source, 'badge-kw'];
+      let meta = '';
+      if (r.dept) meta += `<span><span class="label">部门</span> ${esc(r.dept)}</span>`;
+      if (r.domain) meta += `<span><span class="label">业务域</span> ${esc(r.domain)}</span>`;
+      if (r.dev_owner) meta += `<span><span class="label">研发</span> ${esc(r.dev_owner)}</span>`;
+      if (r.module_owner) meta += `<span><span class="label">负责人</span> ${esc(r.module_owner)}</span>`;
+      if (r.module_file) meta += `<span><span class="label">文件</span> <code>${esc(r.module_file)}</code></span>`;
+
+      const title = r.module || r.title || r.match_term || '';
+
+      return `
+        <div class="result-card" style="animation-delay:${i*0.04}s" data-index="${i}" title="点击查看详情">
+          <div class="card-header">
+            <span class="card-title">${esc(title)}</span>
+            <span style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+              <span class="score">${r.score}分</span>
+              <span class="badge ${badgeClass}">${label}</span>
+            </span>
+          </div>
+          ${meta ? `<div class="card-meta">${meta}</div>` : ''}
+          ${r.note ? `<div class="card-meta" style="margin-top:4px"><span>${esc(r.note)}</span></div>` : ''}
+          <div class="card-hint">&#8627; 点击查看详情</div>
+        </div>
+      `;
+    }).join('');
+
+    $('#results').innerHTML = html;
+  }
+
+  function renderAnswerCard(answer) {
+    // 渲染摘要（markdown → HTML）
+    const summaryHtml = answer.summary
+      ? renderMarkdown(answer.summary)
+      : '<p style="color:var(--text-muted)">未找到相关内容</p>';
+
+    // 图片画廊
+    let imagesHtml = '';
+    if (answer.images && answer.images.length > 0) {
+      imagesHtml = `
+        <div class="answer-gallery">
+          ${answer.images.map(img => `
+            <div class="answer-gallery-item">
+              <img src="${escAttr(img.src)}" alt="${esc(img.alt)}" loading="lazy" onerror="this.parentElement.style.display='none'">
+              ${img.alt ? `<span class="answer-gallery-caption">${esc(img.alt)}</span>` : ''}
+            </div>
+          `).join('')}
+        </div>`;
+    }
+
+    // 关联模块标签
+    let moduleTags = '';
+    if (answer.matched_modules && answer.matched_modules.length > 0) {
+      moduleTags = answer.matched_modules.map(m =>
+        `<span class="answer-tag" title="${esc(m.dept)}/${esc(m.domain)} | 研发:${esc(m.dev_owner)} | 模块:${esc(m.module_owner)}">📦 ${esc(m.name)}</span>`
+      ).join('');
+    }
+
+    // 关联关键词标签
+    let kwTags = '';
+    if (answer.matched_keywords && answer.matched_keywords.length > 0) {
+      kwTags = answer.matched_keywords.slice(0, 6).map(k =>
+        `<span class="answer-tag kw">🏷️ ${esc(k)}</span>`
+      ).join('');
+    }
+
+    return `
+      <div class="answer-card">
+        <div class="answer-header">
+          <div class="answer-icon">&#9889;</div>
+          <div>
+            <div class="answer-label">AI 智能回答</div>
+            <div class="answer-title">关于「${esc(answer.question)}」</div>
+          </div>
+        </div>
+        <div class="answer-body">
+          <div class="answer-summary">${summaryHtml}</div>
+          ${imagesHtml}
+          ${moduleTags || kwTags ? `
+          <div class="answer-tags">
+            ${moduleTags}
+            ${kwTags}
+          </div>` : ''}
+        </div>
+        <div class="answer-divider">以下为相关搜索结果</div>
+      </div>
+    `;
+  }
+
+  function renderProcessPanel(proc) {
+    if (!proc) return '';
+
+    const l1 = proc.layer1_search || {};
+    const l2 = proc.layer2_deep_search || {};
+    const l3 = proc.layer3_answer_gen || {};
+
+    const sourceLabels = {
+      keyword_index: '关键词索引', module_match: '模块匹配',
+      knowledge_base: '知识库文档', report_data: '报表数据'
+    };
+
+    let sourcesHtml = '';
+    if (l1.sources) {
+      sourcesHtml = Object.entries(l1.sources).map(([k, v]) =>
+        `<span class="chip${v > 0 ? ' hl' : ''}">${sourceLabels[k] || k}: ${v}条</span>`
+      ).join('');
+    }
+
+    let sectionsHtml = '';
+    if (l2.top_sections && l2.top_sections.length > 0) {
+      sectionsHtml = l2.top_sections.map((s, i) =>
+        `<div class="section-item"><span class="score">[${s.score}分]</span> ${esc(s.heading)}</div>`
+      ).join('');
+    }
+
+    let filesHtml = '';
+    if (l2.kb_files_searched && l2.kb_files_searched.length > 0) {
+      filesHtml = l2.kb_files_searched.map(f => {
+        const short = f.replace('2026产品业务知识库/', '');
+        return `<span class="chip">${esc(short)}</span>`;
+      }).join('');
+    }
+
+    const id = 'proc-' + Math.random().toString(36).slice(2, 8);
+
+    return `
+      <div class="process-panel">
+        <div class="process-toggle" onclick="this.classList.toggle('open'); document.getElementById('${id}').classList.toggle('open')">
+          <span class="arrow">▶</span> 🔍 检索过程：搜索 → 深度检索 → 回答生成
+        </div>
+        <div class="process-body" id="${id}">
+          <div class="process-layer l1">
+            <div class="layer-title">🔍 第一层 · 搜索</div>
+            <div class="layer-detail">
+              <div>分词：${(l1.tokens || []).map(t => `<span class="chip hl">${esc(t)}</span>`).join(' ')}</div>
+              ${l1.expanded_terms && l1.expanded_terms.length > 0 ? `<div style="margin-top:4px">扩展词：${l1.expanded_terms.slice(0, 10).map(t => `<span class="chip">${esc(t)}</span>`).join(' ')}</div>` : ''}
+              <div style="margin-top:6px">四路搜索：${sourcesHtml}</div>
+              <div style="margin-top:2px">去重排序后：<span class="chip hl">${l1.after_dedup_rank || 0}条</span></div>
+            </div>
+          </div>
+          <div class="process-layer l2">
+            <div class="layer-title">📖 第二层 · 深度检索</div>
+            <div class="layer-detail">
+              <div>搜索知识库文件：${filesHtml || '<span class="chip">无</span>'}</div>
+              <div style="margin-top:4px">匹配段落：<span class="chip hl">${l2.sections_found || 0}个</span></div>
+              ${sectionsHtml ? `<div style="margin-top:4px">${sectionsHtml}</div>` : ''}
+            </div>
+          </div>
+          <div class="process-layer l3">
+            <div class="layer-title">✏️ 第三层 · 回答生成</div>
+            <div class="layer-detail">
+              <div>最佳段落：<span class="chip hl">${esc(l3.best_section || '无')}</span></div>
+              ${l3.date_extracted ? `<div>提取日期：<span class="chip">${esc(l3.date_extracted)}</span></div>` : ''}
+              <div>总结生成：${l3.has_takeaway ? '<span class="chip hl">✓ 已生成</span>' : '<span class="chip">未生成</span>'}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  async function openDetail(r) {
+    const overlay = document.createElement('div');
+    overlay.className = 'overlay';
+    overlay.onclick = e => { if (e.target === overlay) closeDetail(); };
+    overlay.innerHTML = `
+      <div class="detail-panel">
+        <div class="detail-header">
+          <h2>${esc(r.module || r.title || '详情')}</h2>
+          <button class="close-btn" onclick="closeDetail()">&times;</button>
+        </div>
+        <div class="detail-body" id="detailBody">
+          <div class="detail-loading"><div class="loading"><div class="spinner"></div> 加载中...</div></div>
+        </div>
+      </div>
+    `;
+    $('#overlayContainer').appendChild(overlay);
+    document.body.style.overflow = 'hidden';
+
+    // 先显示已知元数据
+    let metaHtml = '';
+    if (r.dept || r.domain || r.dev_owner || r.module_owner || r.product || r.appendix) {
+      metaHtml += '<div class="meta-grid">';
+      if (r.dept) metaHtml += `<div class="meta-item"><div class="mlabel">所属部门</div><div class="mvalue">${esc(r.dept)}</div></div>`;
+      if (r.domain) metaHtml += `<div class="meta-item"><div class="mlabel">业务域</div><div class="mvalue">${esc(r.domain)}</div></div>`;
+      if (r.product) metaHtml += `<div class="meta-item"><div class="mlabel">产品</div><div class="mvalue">${esc(r.product)}</div></div>`;
+      if (r.appendix) metaHtml += `<div class="meta-item"><div class="mlabel">周报附录</div><div class="mvalue">${esc(r.appendix)}</div></div>`;
+      if (r.dev_owner) metaHtml += `<div class="meta-item"><div class="mlabel">研发负责人</div><div class="mvalue">${esc(r.dev_owner)}</div></div>`;
+      if (r.module_owner) metaHtml += `<div class="meta-item"><div class="mlabel">模块负责人</div><div class="mvalue">${esc(r.module_owner)}</div></div>`;
+      if (r.module_file) metaHtml += `<div class="meta-item"><div class="mlabel">Skill 文件</div><div class="mvalue"><code>${esc(r.module_file)}</code></div></div>`;
+      if (r.kb_path) metaHtml += `<div class="meta-item"><div class="mlabel">知识库路径</div><div class="mvalue"><code>${esc(r.kb_path)}</code></div></div>`;
+      metaHtml += '</div>';
+    }
+
+    const bodyEl = overlay.querySelector('#detailBody');
+
+    // 如果有文档路径，加载完整文档
+    const docPath = r.path || r.module_file;
+    if (docPath) {
+      try {
+        const res = await fetch(`/api/document?path=${encodeURIComponent(docPath)}`);
+        const doc = await res.json();
+        if (doc.content) {
+          // 渲染 markdown 内容
+          const html = renderMarkdown(doc.content);
+          bodyEl.innerHTML = metaHtml + `<div class="doc-content">${html}</div>`;
+        } else {
+          bodyEl.innerHTML = metaHtml + `<p style="color:var(--text-muted)">${esc(doc.error || '无法加载文档')}</p>`;
+        }
+      } catch (e) {
+        bodyEl.innerHTML = metaHtml + `<p style="color:var(--text-muted)">加载失败</p>`;
+      }
+    } else {
+      bodyEl.innerHTML = metaHtml + `<p style="color:var(--text-muted)">暂无更多详情</p>`;
+    }
+  }
+
+  function closeDetail() {
+    const c = $('#overlayContainer');
+    c.innerHTML = '';
+    document.body.style.overflow = '';
+  }
+
+  /* 简单的 Markdown → HTML 渲染 */
+  function renderMarkdown(md) {
+    let html = md;
+
+    // 代码块
+    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (m, lang, code) =>
+      `<pre><code>${esc(code.trim())}</code></pre>`);
+
+    // 图片
+    html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (m, alt, src) =>
+      `<img src="${escAttr(src)}" alt="${escAttr(alt)}" loading="lazy" onerror="this.style.display='none'">`);
+
+    // 链接
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+
+    // 标题
+    html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
+    html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+    html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+    html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
+    // 粗体/斜体
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+
+    // 行内代码
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+    // 表格
+    html = html.replace(/^\|(.+)\|$/gm, line => {
+      if (line.includes('---')) return '';
+      const cells = line.split('|').filter(c => c.trim());
+      const isHeader = cells.some(c => c.trim().match(/^[-:]+$/));
+      if (isHeader) return '';
+      const tag = line.match(/^\|[-:\s|]+\|$/) ? '' : 'td';
+      const actualTag = !tag ? 'th' : 'td';
+      return '<tr>' + cells.map(c => `<${actualTag}>${c.trim()}</${actualTag}>`).join('') + '</tr>';
+    });
+    html = html.replace(/(<tr>[\s\S]*?<\/tr>)+/g, '<table>$&</table>');
+
+    // 水平线
+    html = html.replace(/^---$/gm, '<hr>');
+
+    // 引用
+    html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
+    html = html.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
+
+    // 无序列表
+    html = html.replace(/^[\*\-] (.+)$/gm, '<li>$1</li>');
+    html = html.replace(/(<li>[\s\S]*?<\/li>)+/g, '<ul>$&</ul>');
+
+    // 有序列表
+    html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+
+    // 段落
+    html = html.replace(/\n\n+/g, '</p><p>');
+    html = '<p>' + html + '</p>';
+
+    // 清理空段落
+    html = html.replace(/<p>\s*<\/p>/g, '');
+    html = html.replace(/<p>(<[hut])/g, '$1');
+    html = html.replace(/(<\/[hut][^>]*>)<\/p>/g, '$1');
+
+    return html;
+  }
+
+  function showLoading() {
+    $('#status').style.display = 'none';
+    $('#results').innerHTML = '<div class="loading"><div class="spinner"></div> 搜索中...</div>';
+  }
+
+  function esc(s) {
+    if (!s) return '';
+    const d = document.createElement('div');
+    d.textContent = String(s);
+    return d.innerHTML;
+  }
+
+  function escAttr(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+</script>
+</body>
+</html>
