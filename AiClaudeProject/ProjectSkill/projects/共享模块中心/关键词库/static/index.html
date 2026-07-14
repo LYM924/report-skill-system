@@ -495,31 +495,50 @@
     $('#status').style.display = 'none';
     state.results = data.results || [];
 
+    // 缓存命中：直接显示缓存的 Claude 回答
+    if (data.from_cache && data.cached_answer) {
+      const ca = data.cached_answer;
+      let html = renderCachedAnswerCard(ca);
+      html += '<div class="answer-divider">以下为相关搜索结果</div>';
+      $('#results').innerHTML = html;
+
+      $('#searchInfo').style.display = 'flex';
+      $('#searchInfo').innerHTML = `
+        <span>共 <span class="count">1</span> 条结果（来自缓存）</span>
+        <span class="tokens">${(data.tokens||[]).map(t => '<span class="token">' + esc(t) + '</span>').join('')}</span>
+      `;
+      return;
+    }
+
     const hasAnswer = data.answer && data.answer.module;
     const totalCount = (data.results ? data.results.length : 0) + (hasAnswer ? 1 : 0);
 
     if (!hasAnswer && (!data.results || data.results.length === 0)) {
       $('#results').innerHTML = '';
       $('#searchInfo').style.display = 'flex';
-      $('#searchInfo').innerHTML = `<span>未找到与 "<strong>${esc(data.query)}</strong>" 相关的结果，试试换个关键词</span>`;
+      $('#searchInfo').innerHTML = '<span>未找到与 "<strong>' + esc(data.query) + '</strong>" 相关的结果，试试换个关键词</span>';
       return;
     }
 
     $('#searchInfo').style.display = 'flex';
     $('#searchInfo').innerHTML = `
       <span>共 <span class="count">${totalCount}</span> 条结果</span>
-      <span class="tokens">${(data.tokens||[]).map(t => `<span class="token">${esc(t)}</span>`).join('')}</span>
+      <span class="tokens">${(data.tokens||[]).map(t => '<span class="token">' + esc(t) + '</span>').join('')}</span>
     `;
 
     let html = '';
 
-    // 第一条：智能回答卡片
+    // 第一条：智能回答卡片（规则引擎）
     if (hasAnswer) {
       html += renderAnswerCard(data.answer);
-      // 过程可视化面板
       if (data.process) {
         html += renderProcessPanel(data.process);
       }
+    }
+
+    // 新增：Claude 深度分析卡片（自动加载）
+    if (data.claude_stream_url) {
+      html += renderClaudeCard(data.query);
     }
 
     // 后续结果：原有搜索结果卡片
@@ -534,11 +553,11 @@
     html += data.results.map((r, i) => {
       const [label, badgeClass] = labels[r.source] || [r.source, 'badge-kw'];
       let meta = '';
-      if (r.dept) meta += `<span><span class="label">部门</span> ${esc(r.dept)}</span>`;
-      if (r.domain) meta += `<span><span class="label">业务域</span> ${esc(r.domain)}</span>`;
-      if (r.dev_owner) meta += `<span><span class="label">研发</span> ${esc(r.dev_owner)}</span>`;
-      if (r.module_owner) meta += `<span><span class="label">负责人</span> ${esc(r.module_owner)}</span>`;
-      if (r.module_file) meta += `<span><span class="label">文件</span> <code>${esc(r.module_file)}</code></span>`;
+      if (r.dept) meta += '<span><span class="label">部门</span> ' + esc(r.dept) + '</span>';
+      if (r.domain) meta += '<span><span class="label">业务域</span> ' + esc(r.domain) + '</span>';
+      if (r.dev_owner) meta += '<span><span class="label">研发</span> ' + esc(r.dev_owner) + '</span>';
+      if (r.module_owner) meta += '<span><span class="label">负责人</span> ' + esc(r.module_owner) + '</span>';
+      if (r.module_file) meta += '<span><span class="label">文件</span> <code>' + esc(r.module_file) + '</code></span>';
 
       const title = r.module || r.title || r.match_term || '';
 
@@ -551,14 +570,19 @@
               <span class="badge ${badgeClass}">${label}</span>
             </span>
           </div>
-          ${meta ? `<div class="card-meta">${meta}</div>` : ''}
-          ${r.note ? `<div class="card-meta" style="margin-top:4px"><span>${esc(r.note)}</span></div>` : ''}
+          ${meta ? '<div class="card-meta">' + meta + '</div>' : ''}
+          ${r.note ? '<div class="card-meta" style="margin-top:4px"><span>' + esc(r.note) + '</span></div>' : ''}
           <div class="card-hint">&#8627; 点击查看详情</div>
         </div>
       `;
     }).join('');
 
     $('#results').innerHTML = html;
+
+    // 自动连接 Claude SSE
+    if (data.claude_stream_url) {
+      connectClaudeStream(data.claude_stream_url);
+    }
   }
 
   function renderAnswerCard(answer) {
@@ -618,6 +642,125 @@
         <div class="answer-divider">以下为相关搜索结果</div>
       </div>
     `;
+  }
+
+  function renderClaudeCard(query) {
+    const id = 'claude-' + Math.random().toString(36).slice(2, 8);
+    return `
+      <div class="claude-card" id="${id}">
+        <div class="claude-header">
+          <div class="claude-icon">🧠</div>
+          <div>
+            <div class="claude-label">Claude 深度分析</div>
+            <div class="claude-title">关于「${esc(query)}」</div>
+          </div>
+        </div>
+        <div class="claude-body" id="${id}-body">
+          <span class="claude-cursor"></span>
+        </div>
+        <div class="claude-status" id="${id}-status">
+          ⏳ 正在分析...
+        </div>
+      </div>
+    `;
+  }
+
+  function renderCachedAnswerCard(ca) {
+    const summaryHtml = ca.summary
+      ? renderMarkdown(ca.summary)
+      : '<p style="color:var(--text-muted)">无内容</p>';
+    return `
+      <div class="claude-card">
+        <div class="claude-header">
+          <div class="claude-icon">💾</div>
+          <div>
+            <div class="claude-label">Claude 深度分析（缓存）</div>
+            <div class="claude-title">关于「${esc(ca.question)}」</div>
+          </div>
+        </div>
+        <div class="claude-body">${summaryHtml}</div>
+        <div class="claude-status done">
+          ✅ 来自缓存 · ${esc(ca.saved_at || '')}
+        </div>
+      </div>
+    `;
+  }
+
+  function connectClaudeStream(url) {
+    const cardId = document.querySelector('.claude-card')?.id;
+    if (!cardId) return;
+
+    const body = document.getElementById(cardId + '-body');
+    const status = document.getElementById(cardId + '-status');
+
+    fetch(url)
+      .then(response => {
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        function processChunk() {
+          reader.read().then(({ done, value }) => {
+            if (done) return;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                const data = line.slice(6);
+                if (data === '[DONE]') {
+                  const cursor = body.querySelector('.claude-cursor');
+                  if (cursor) cursor.remove();
+                  if (status) {
+                    status.textContent = '✅ 分析完成';
+                    status.className = 'claude-status done';
+                  }
+                  return;
+                }
+
+                try {
+                  const parsed = JSON.parse(data);
+                  if (parsed.error) {
+                    body.innerHTML = '<p style="color:var(--report)">⚠️ ' + esc(parsed.error) + '</p>';
+                    if (status) {
+                      status.textContent = '❌ ' + esc(parsed.error);
+                      status.className = 'claude-status error';
+                    }
+                    return;
+                  }
+                  if (parsed.text) {
+                    const cursor = body.querySelector('.claude-cursor');
+                    if (cursor) cursor.remove();
+                    body.innerHTML += esc(parsed.text);
+                    body.innerHTML += '<span class="claude-cursor"></span>';
+                    body.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                  }
+                } catch (e) {
+                  // ignore parse errors
+                }
+              }
+            }
+            processChunk();
+          }).catch(() => {
+            if (status) {
+              status.textContent = '⚠️ 连接中断';
+              status.className = 'claude-status error';
+            }
+          });
+        }
+
+        processChunk();
+      })
+      .catch(err => {
+        body.innerHTML = '<p style="color:var(--report)">⚠️ Claude 分析不可用: ' + esc(err.message) + '</p>';
+        if (status) {
+          status.textContent = '❌ 连接失败';
+          status.className = 'claude-status error';
+        }
+      });
   }
 
   function renderProcessPanel(proc) {
