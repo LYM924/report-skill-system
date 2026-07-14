@@ -199,7 +199,7 @@ class SearchHandler(SimpleHTTPRequestHandler):
         try:
             with client.messages.stream(
                 model=model,
-                max_tokens=2048,
+                max_tokens=4096,
                 system=system_prompt,
                 messages=messages,
             ) as stream:

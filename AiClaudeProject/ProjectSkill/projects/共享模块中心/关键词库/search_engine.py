@@ -659,21 +659,21 @@ class SearchEngine:
 
         # 组装 system prompt
         system_parts = [
-            "你是产品知识库助手。请根据以下信息回答用户问题。",
+            "你是产品知识库助手，服务于浙里报等产品的用户咨询。",
             "",
             "## 回答策略",
-            "1. 优先使用下方「检索到的文档内容」回答",
-            "2. 如果文档内容与用户问题不直接相关，结合你的知识给出合理回答，并说明「知识库中暂无该问题的专门文档，以下为基于通用知识的回答」",
-            "3. 如果文档中有部分相关的内容，提取相关部分回答，并补充你的知识",
+            "1. 仔细阅读下方提供的文档内容，从中提取与用户问题相关的信息",
+            "2. 如果文档内容足够回答，直接给出准确答案，引用文档中的具体内容",
+            "3. 如果文档内容部分相关但不够完整，先给出文档中的信息，再结合你的知识补充",
+            "4. 如果文档完全不相关，不要编造，诚实说明知识库暂无此文档，然后基于你的知识给出参考回答",
             "",
             "## 回答要求",
-            "- 用中文回答，简洁专业",
+            "- 用中文回答，详细、专业、完整",
             "- 如果有操作步骤，按步骤编号清晰列出",
-            "- 如果信息不足以回答，明确指出缺少什么信息",
-            "- 结尾标注信息来源文件路径",
+            "- 给出明确的结论，不要含糊其辞",
+            "- 结尾标注信息来源",
             "- 在回答末尾，用以下 JSON 格式输出建议补充的关键词（仅输出 JSON，不放 markdown 代码块中）：",
             '  {"keywords_to_add": ["关键词1", "关键词2"], "module": "所属模块名"}',
-            "- 如果问题中提到的功能在文档中找不到对应关键词，在 keywords_to_add 中列出应该有的关键词",
             "",
         ]
 
@@ -688,12 +688,35 @@ class SearchEngine:
             system_parts.append("")
 
         if kb_sections:
-            system_parts.append("## 知识库相关段落（按相关性排序）")
-            for i, sec in enumerate(kb_sections[:3], 1):
-                heading = sec["heading"].lstrip("#").strip()
-                content = sec["content"][:1500]
-                system_parts.append(f"### [{i}] {heading}")
-                system_parts.append(content)
+            # 收集最相关的 KB 文件，读取完整内容（而非截断片段）
+            seen_files = set()
+            full_docs = []
+            for sec in kb_sections:
+                path = sec.get("path", "")
+                if path and path not in seen_files:
+                    seen_files.add(path)
+                    try:
+                        full_path = PROJECT_DIR / path
+                        if full_path.exists():
+                            full_content = full_path.read_text(encoding="utf-8")
+                            # 限制单个文件最多 8000 字符，避免 prompt 过长
+                            if len(full_content) > 8000:
+                                full_content = full_content[:8000] + "\n\n...(内容过长，已截断)..."
+                            full_docs.append({
+                                "path": path,
+                                "content": full_content,
+                                "score": sec.get("score", 0),
+                            })
+                    except Exception:
+                        pass
+                if len(full_docs) >= 2:  # 最多读 2 个完整文件
+                    break
+
+            system_parts.append("## 知识库文档（完整内容）")
+            for i, doc in enumerate(full_docs, 1):
+                rel_path = doc["path"].replace("2026产品业务知识库/", "")
+                system_parts.append(f"### 文档{i}: {rel_path}")
+                system_parts.append(doc["content"])
                 system_parts.append("")
             system_parts.append("")
 
