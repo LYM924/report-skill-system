@@ -175,9 +175,15 @@ class SearchHandler(SimpleHTTPRequestHandler):
 
         # 支持自定义 API 代理（如国内中转服务）
         base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
-        client_kwargs = {"api_key": api_key}
+        auth_token = os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
+
+        client_kwargs = {}
         if base_url:
             client_kwargs["base_url"] = base_url
+        if auth_token:
+            client_kwargs["auth_token"] = auth_token  # Bearer token 方式
+        else:
+            client_kwargs["api_key"] = api_key        # x-api-key 方式
 
         client = anthropic.Anthropic(**client_kwargs)
 
