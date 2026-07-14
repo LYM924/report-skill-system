@@ -37,6 +37,8 @@ class SearchEngine:
         self.kb_docs = []  # [{path, module, dept, domain, content_sample}]
         self.report_docs = []  # [{path, title, content_sample}]
         self.synonyms = {}  # word -> [aliases]
+        self.faq_cache = {}  # 回答缓存: {fingerprint: {query, answer, keywords, module, saved_at}}
+        self.faq_cache_file = HERE / "faq_cache.json"
 
     # -------- load --------
 
@@ -46,6 +48,7 @@ class SearchEngine:
         self._load_module_files()
         self._load_knowledge_base()
         self._load_report_data()
+        self._load_faq_cache()
 
     def _load_synonyms(self):
         if SYNONYMS_FILE.exists():
@@ -220,6 +223,15 @@ class SearchEngine:
                 "title": self._extract_title(text),
                 "content_sample": sample,
             })
+
+    def _load_faq_cache(self):
+        """加载 FAQ 回答缓存"""
+        if self.faq_cache_file.exists():
+            try:
+                with open(self.faq_cache_file, "r", encoding="utf-8") as f:
+                    self.faq_cache = json.load(f)
+            except Exception:
+                self.faq_cache = {}
 
     def _extract_title(self, text):
         """提取文档标题"""
@@ -1378,6 +1390,108 @@ class SearchEngine:
             return f"🔧 **处理方案：**"
 
         return f"📖 **查询结果：**"
+
+    # -------- FAQ cache --------
+
+    def check_faq_cache(self, query):
+        """检查 FAQ 缓存中是否有匹配的回答。
+        返回匹配的缓存条目 dict，或 None。
+        """
+        query_tokens = set(jieba.cut(query))
+        query_tokens = {t.strip() for t in query_tokens if len(t.strip()) >= 2}
+
+        best_match = None
+        best_score = 0
+
+        for fp, entry in self.faq_cache.items():
+            entry_keywords = set(entry.get("keywords", []))
+            if not entry_keywords:
+                continue
+            overlap = query_tokens & entry_keywords
+            if len(overlap) >= 2:
+                score = len(overlap)
+                # 查询文本相似度加分
+                if query.strip() == entry.get("query", "").strip():
+                    score += 10
+                elif query.strip() in entry.get("query", "") or entry.get("query", "") in query.strip():
+                    score += 5
+                if score > best_score:
+                    best_score = score
+                    best_match = entry
+
+        if best_match and best_score >= 3:
+            return best_match
+        return None
+
+    def save_faq(self, query, claude_answer, module_name, dept, domain, keywords):
+        """保存 Claude 回答到 FAQ 缓存和知识库 FAQ 文件。
+        返回: {"saved": bool, "cache_key": str, "faq_path": str}
+        """
+        import hashlib
+        from datetime import datetime
+        fp = hashlib.md5(query.encode()).hexdigest()[:12]
+
+        # 去重：如果已有相同 query 的缓存，跳过
+        if fp in self.faq_cache:
+            return {"saved": False, "reason": "duplicate", "cache_key": fp}
+
+        entry = {
+            "query": query,
+            "answer": claude_answer,
+            "keywords": keywords,
+            "module": module_name,
+            "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        }
+        self.faq_cache[fp] = entry
+
+        # 持久化缓存
+        try:
+            with open(self.faq_cache_file, "w", encoding="utf-8") as f:
+                json.dump(self.faq_cache, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+        # 2. 保存到 FAQ 知识库文件
+        kb_dir = self._domain_to_kb_dir(dept, domain)
+        if not kb_dir:
+            kb_dir = KB_DIR / dept if dept else KB_DIR / "其他"
+        kb_dir.mkdir(parents=True, exist_ok=True)
+        faq_file = kb_dir / "FAQ.md"
+
+        # 格式化 FAQ 条目
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        tag_keywords = "、".join(keywords) if keywords else query
+        faq_entry = f"""
+### Q: {query}
+**关键词：** {tag_keywords}
+**模块：** {module_name}
+**日期：** {date_str}
+
+{claude_answer}
+
+---
+"""
+
+        # 追加到 FAQ 文件（先去重检查）
+        try:
+            if faq_file.exists():
+                existing = faq_file.read_text(encoding="utf-8")
+                if f"### Q: {query}" in existing:
+                    return {"saved": True, "reason": "faq_exists", "cache_key": fp, "faq_path": str(faq_file.relative_to(PROJECT_DIR))}
+            else:
+                existing = ""
+            faq_file.write_text(
+                (existing + faq_entry).strip() + "\n",
+                encoding="utf-8"
+            )
+        except Exception:
+            pass
+
+        return {
+            "saved": True,
+            "cache_key": fp,
+            "faq_path": str(faq_file.relative_to(PROJECT_DIR)),
+        }
 
     def _deduplicate(self, results):
         """去重，保留最高分的条目"""
