@@ -75,7 +75,7 @@ class SearchHandler(SimpleHTTPRequestHandler):
             result = eng.search(query, top=top)
 
             # 2. 构建 Claude prompt 并生成 stream URL
-            api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+            api_key = os.environ.get("ANTHROPIC_AUTH_TOKEN", "") or os.environ.get("ANTHROPIC_API_KEY", "")
             if api_key:
                 prompt = eng.build_claude_prompt(query, result.get("results", []))
                 context_json = json.dumps(prompt, ensure_ascii=False)
@@ -106,9 +106,9 @@ class SearchHandler(SimpleHTTPRequestHandler):
                 self._json({"error": "请提供查询参数 q"})
                 return
 
-            api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+            api_key = os.environ.get("ANTHROPIC_AUTH_TOKEN", "") or os.environ.get("ANTHROPIC_API_KEY", "")
             if not api_key:
-                self._sse_send({"error": "未配置 ANTHROPIC_API_KEY 环境变量"})
+                self._sse_send({"error": "未配置 ANTHROPIC_AUTH_TOKEN 或 ANTHROPIC_API_KEY 环境变量"})
                 self._sse_done()
                 return
 
@@ -173,9 +173,17 @@ class SearchHandler(SimpleHTTPRequestHandler):
             self._sse_done()
             return
 
-        client = anthropic.Anthropic(api_key=api_key)
+        # 支持自定义 API 代理（如国内中转服务）
+        base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
+        client_kwargs = {"api_key": api_key}
+        if base_url:
+            client_kwargs["base_url"] = base_url
 
-        model = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-20250514")
+        client = anthropic.Anthropic(**client_kwargs)
+
+        model = os.environ.get("CLAUDE_MODEL",
+                 os.environ.get("ANTHROPIC_DEFAULT_SONNET_MODEL",
+                 "claude-sonnet-4-20250514"))
         system_prompt = context.get("system", "")
         messages = context.get("messages", [{"role": "user", "content": query}])
 
