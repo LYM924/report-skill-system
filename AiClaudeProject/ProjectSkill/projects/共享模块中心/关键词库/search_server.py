@@ -47,7 +47,45 @@ class SearchHandler(SimpleHTTPRequestHandler):
                 return
 
             eng = get_engine()
+
+            # 0. 先查 FAQ 缓存
+            cached = eng.check_faq_cache(query)
+            if cached:
+                result = {
+                    "query": query,
+                    "tokens": list(jieba.cut(query)),
+                    "expanded_terms": [],
+                    "total": 1,
+                    "from_cache": True,
+                    "cached_answer": {
+                        "source": "faq_cache",
+                        "question": query,
+                        "summary": cached["answer"],
+                        "module": cached.get("module", ""),
+                        "matched_keywords": cached.get("keywords", []),
+                        "saved_at": cached.get("saved_at", ""),
+                    },
+                    "results": [],
+                    "claude_stream_url": None,
+                }
+                self._json(result)
+                return
+
+            # 1. 常规搜索
             result = eng.search(query, top=top)
+
+            # 2. 构建 Claude prompt 并生成 stream URL
+            api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+            if api_key:
+                prompt = eng.build_claude_prompt(query, result.get("results", []))
+                context_json = json.dumps(prompt, ensure_ascii=False)
+                context_encoded = url_quote(context_json)
+                result["claude_stream_url"] = "/api/claude-stream?q={}&context={}".format(
+                    url_quote(query), context_encoded
+                )
+            else:
+                result["claude_stream_url"] = None
+
             self._json(result)
         elif parsed.path == "/api/rebuild":
             global engine
