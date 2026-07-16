@@ -1170,325 +1170,67 @@ class SearchEngine:
             "score": best_section.get("score", 0),
         }
 
-    def _build_summary(self, query, matched_modules, kb_sections, raw_doc_sections, report_sections, chapter_group=None):
-        """构建自然语言回答 - 基于章节组完整内容合成"""
-        kb_sections = [s for s in kb_sections if s["heading"] != "(文档开头)"]
-        raw_doc_sections = [s for s in raw_doc_sections if s["heading"] != "(文档开头)"]
+    def _build_summary(self, query, matched_modules, kb_sections,
+                       raw_doc_sections, report_sections, chapter_group=None):
+        """快速摘要：只做模块定位 + 关键信息提取，完整回答交给 Claude。
 
-        if not kb_sections and not chapter_group:
-            return f"关于「{query}」，未在知识库中找到直接相关内容。建议尝试更具体的关键词或联系相关模块负责人。"
-
-        # 如果有最佳模块，优先使用同部门的知识库段落
-        best_mod_dept = matched_modules[0].get("dept", "") if matched_modules else ""
-        if best_mod_dept:
-            same_dept_sections = [s for s in kb_sections
-                                  if self._infer_dept_from_path(s.get("path", "")) == best_mod_dept]
-            if same_dept_sections:
-                kb_sections = same_dept_sections + kb_sections  # 同部门优先，其他作为备选
-
-        best_kb = kb_sections[0] if kb_sections else None
-        path = (chapter_group or best_kb).get("path", best_kb.get("path", "") if best_kb else "")
+        精简为 ~50 行，仅做 3 件事：
+        1. 模块定位
+        2. 提取最佳段落前 200 字
+        3. 组装返回
+        """
+        parts = []
 
         # 判断问题类型
-        is_how = any(kw in query for kw in ["怎么", "如何", "怎样", "怎么办", "操作"])
-        is_what = any(kw in query for kw in ["什么是", "是什么", "功能说明", "介绍"])
+        is_how = any(kw in query for kw in ['怎么', '如何', '怎样', '怎么办', '操作'])
+        is_what = any(kw in query for kw in ['什么是', '是什么', '功能说明', '介绍'])
+        is_yes_no = any(kw in query for kw in ['可以', '能不能', '是否', '支持', '有没有', '会不会'])
 
-        parts = []
-        conclusion = self._infer_conclusion(query, best_kb.get("heading","") if best_kb else "", "")
-        parts.append(conclusion)
-
-        if chapter_group:
-            # === 有章节组：用完整内容合成回答 ===
-            children = chapter_group["children"]
-            parent_title = chapter_group["parent_heading"]
-
-            # 1. 功能说明 / 概述
-            desc = self._find_child(children, ["功能说明", "概述", "背景", "说明"])
-            if desc:
-                parts.append(self._clean_text(desc["content"]))
-
-            # 2. 规则说明
-            rules = self._find_child(children, ["规则说明", "规则", "限制", "约束"])
-            rules_text = ""
-            if rules:
-                rules_text = self._clean_text(rules["content"])
-
-            # 3. 操作步骤（核心）
-            steps = self._find_child(children, ["操作步骤", "步骤", "流程", "使用方法"])
-            if steps:
-                steps_text = self._clean_text(steps["content"])
-                if is_how:
-                    # how-to 查询：操作步骤放最前面
-                    formatted_steps = self._format_steps(steps_text)
-                    parts.append(f"\n**操作步骤：**\n{formatted_steps}")
-                else:
-                    parts.append(f"\n{steps_text}")
-
-            # 4. 结果/状态表格
-            if steps:
-                table = self._extract_status_table(steps["content"])
-                if table:
-                    parts.append(f"\n**结果状态：**\n{table}")
-
-            # 5. 规则提示（how-to 查询时放在步骤后面）
-            if is_how and rules_text:
-                parts.append(f"\n**关键规则：**\n{rules_text}")
-
-            # 6. 未匹配的其他子节
-            shown = {"功能说明", "概述", "背景", "说明", "规则说明", "规则", "限制", "约束",
-                     "操作步骤", "步骤", "流程", "使用方法"}
-            for child in children:
-                h = child["heading"]
-                if not any(kw in h for kw in shown):
-                    content = self._clean_text(child["content"])
-                    if len(content) > 20:
-                        parts.append(f"\n**{h}：**\n{content}")
-        # 如果没有章节组，且最佳段落来自不同部门，显示模块归属信息
+        if is_yes_no:
+            parts.append('✅ **支持。**' if any(
+                kw in (kb_sections[0]['content'] if kb_sections else '')
+                for kw in ['支持', '新增', '增加', '可以']
+            ) else '❌ **暂不支持。**')
+        elif is_how:
+            parts.append(f'🔧 **关于「{query}」的处理方案：**')
+        elif is_what:
+            parts.append(f'📖 **关于「{query}」的说明：**')
         else:
-            kb_dept = self._infer_dept_from_path(path) if best_kb else ""
-            if kb_dept and best_mod_dept and kb_dept != best_mod_dept:
-                mod = matched_modules[0]
-                dept_info = f"{mod.get('domain', '')} / {mod.get('dept', '')}"
-                owner_info = ""
-                if mod.get("module_owner"):
-                    owner_info = f"，负责人：{mod['module_owner']}"
-                if mod.get("dev_owner"):
-                    owner_info += f"（研发 {mod['dev_owner']}）"
-                return (f"📖 **查询结果：**\n\n"
-                        f"「{query}」属于「{mod['name']}」模块（{dept_info}）{owner_info}。\n\n"
-                        f"该模块知识库中暂无详细操作步骤，建议联系模块负责人获取最新文档。\n\n"
-                        f"💡 相关模块：「{mod['name']}」（{dept_info}）{owner_info}")
+            parts.append(f'📖 **查询结果：**')
 
-            # 正常回退：显示最佳段落内容
-            content = best_kb["content"]
-            ver_content = self._clean_text(content)
-            if len(ver_content) > 400:
-                ver_content = ver_content[:400] + "..."
-            parts.append(f"\n{ver_content}")
-        # 注意：chapter_group 有值时已在上面处理，这里只处理无 chapter_group 的情况
-
-        # 文件位置
-        kb_rel = path.replace("2026产品业务知识库/", "")
-        line = (chapter_group["children"][0]["line_start"] if chapter_group and chapter_group.get("children")
-                else best_kb.get("line_start", "?")) if best_kb else "?"
-        parts.append(f"\n📁 知识库：`{kb_rel}` (第{line}行附近)")
-
-        # 原始文档
-        if raw_doc_sections:
-            raw = raw_doc_sections[0]
-            raw_rel = raw["path"].replace("原始产品文档/", "")
-            parts.append(f"📄 原始文档：`{raw_rel}` (第{raw.get('line_start', '?')}行附近)")
-
-        # 模块信息
+        # 模块定位
         if matched_modules:
             mod = matched_modules[0]
-            parts.append(f"\n💡 相关模块：「{mod['name']}」")
-            if mod.get("domain"):
-                parts[-1] += f"（{mod['domain']} / {mod['dept']}）"
-            if mod.get("module_owner"):
-                parts[-1] += f"，负责人：{mod['module_owner']}"
-            if mod.get("dev_owner"):
-                parts[-1] += f"（研发 {mod['dev_owner']}）"
+            parts.append(
+                f'📍 所属模块：「{mod["name"]}」'
+                + (f'（{mod.get("domain", "")} / {mod.get("dept", "")}）' if mod.get('domain') else '')
+                + (f'，负责人：{mod.get("module_owner", "")}' if mod.get('module_owner') else '')
+                + (f'（研发 {mod.get("dev_owner", "")}）' if mod.get('dev_owner') else '')
+            )
 
-        # 一句话总结
-        if chapter_group:
-            takeaway = self._generate_takeaway_v2(query, chapter_group)
-        else:
-            takeaway = self._generate_takeaway(query, best_kb["heading"] if best_kb else "",
-                                                self._clean_text(best_kb["content"]) if best_kb else "",
-                                                matched_modules)
-        if takeaway:
-            parts.append(f"\n✏️ **简单说：{takeaway}**")
+        # 最佳段落摘要
+        if kb_sections:
+            best = kb_sections[0]
+            content = best['content']
+            # 简单清理：去图片语法、去 markdown 标记
+            content = re.sub(r'!\[.*?\]\(.*?\)', '', content)
+            content = re.sub(r'\*\*', '', content)
+            content = re.sub(r'#{1,4}\s+', '', content)
+            if len(content) > 200:
+                content = content[:200] + '...'
+            parts.append(f'\n{content.strip()}')
 
-        return "\n".join(parts)
+            # 文档位置
+            kb_rel = best['path'].replace('2026产品业务知识库/', '')
+            parts.append(f'\n📁 知识库：`{kb_rel}` (第{best.get("line_start", "?")}行附近)')
 
-    def _find_child(self, children, keywords):
-        """在子节列表中查找匹配关键词的子节"""
-        for child in children:
-            for kw in keywords:
-                if kw in child["heading"]:
-                    return child
-        # 兜底：返回第一个内容不为空的子节
-        for child in children:
-            if len(child["content"].strip()) > 20:
-                return child
-        return children[0] if children else None
+        # 原始文档引用
+        if raw_doc_sections:
+            raw = raw_doc_sections[0]
+            raw_rel = raw['path'].replace('原始产品文档/', '')
+            parts.append(f'📄 原始文档：`{raw_rel}`')
 
-    def _clean_text(self, text):
-        """清理 markdown 标记"""
-        text = re.sub(r"!\[.*?\]\(.*?\)", "", text)
-        text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
-        text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
-        text = re.sub(r"#{1,4}\s+", "", text)
-        text = re.sub(r"\n{3,}", "\n\n", text)
-        return text.strip()
-
-    def _format_steps(self, text):
-        """格式化操作步骤文本，识别步骤编号"""
-        # 尝试识别 "步骤N：xxx" 或 "步骤N: xxx" 格式
-        lines = text.split("\n")
-        formatted = []
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-            # 匹配 "步骤N：xxx" 或 "步骤N-M：xxx" 或 "步骤N: xxx"
-            m = re.match(r"(步骤\d+[-，]*\d*)：(.+)", line)
-            if not m:
-                m = re.match(r"(步骤\d+[-，]*\d*):\s*(.+)", line)
-            if m:
-                formatted.append(f"**{m.group(1)}：**{m.group(2).strip()}")
-            else:
-                formatted.append(line)
-        return "\n".join(formatted) if formatted else text
-
-    def _extract_status_table(self, text):
-        """从文本中提取状态-说明对照表"""
-        # 匹配 "状态N：xxx" 模式
-        status_items = re.findall(r"状态(\d+)[：:]\s*(.+?)(?=\n|状态\d|$)", text)
-        if len(status_items) >= 2:
-            rows = []
-            for num, desc in status_items:
-                desc_clean = desc.strip().rstrip("。")
-                if len(desc_clean) > 40:
-                    desc_clean = desc_clean[:40] + "..."
-                rows.append(f"| 状态{num} | {desc_clean} |")
-            if rows:
-                return "| 状态 | 说明 |\n|------|------|\n" + "\n".join(rows)
-        return ""
-
-    def _generate_takeaway_v2(self, query, chapter_group):
-        """基于章节组生成一句话总结"""
-        children = chapter_group.get("children", [])
-        steps = self._find_child(children, ["操作步骤", "步骤", "流程"])
-        if not steps:
-            return "详见上述内容"
-
-        text = self._clean_text(steps["content"])
-        # 提取第一个步骤中的关键动作
-        first_step = re.search(r"步骤\d+[：:]\s*(.+?)(?=\n|步骤\d+)", text)
-        if first_step:
-            action = first_step.group(1).strip()
-            if len(action) > 60:
-                action = action[:60] + "..."
-            return action
-
-        # 提取前 60 字
-        if len(text) > 60:
-            text = text[:60] + "..."
-        return text
-
-        return "\n".join(parts)
-
-    def _generate_takeaway(self, query, heading, ver_content, matched_modules):
-        """根据版本内容提炼 50-60 字详细总结"""
-        is_yes_no = any(kw in query for kw in ["可以", "能不能", "是否", "支持", "有没有", "会不会", "行不行"])
-        is_how = any(kw in query for kw in ["怎么", "如何", "怎样", "怎么办"])
-
-        clean = re.sub(r"!\[.*?\]\(.*?\)", "", ver_content)
-        clean = re.sub(r"\*\*", "", clean)
-        clean = re.sub(r"#{1,4}\s+", "", clean)
-
-        # 提取核心句子（取前2-3句，合并为50-60字）
-        sentences = [s.strip() for s in clean.split("。") if s.strip()]
-        # 去掉编号
-        sentences = [re.sub(r"^[①②③④⑤\d]+[.、)\s]*", "", s) for s in sentences]
-        # 提取冒号后内容
-        sentences = [s.split("：", 1)[1].strip() if "：" in s else s for s in sentences]
-
-        # 合并句子，控制在50-65字
-        combined = ""
-        for s in sentences:
-            candidate = (combined + "。" + s).strip("。") if combined else s
-            if len(candidate) > 65:
-                break
-            combined = candidate
-
-        if not combined:
-            # 第一句太长，截断
-            if sentences:
-                first = sentences[0]
-                if len(first) > 65:
-                    first = first[:65] + "..."
-                combined = first
-
-        if not combined:
-            return "详见上述内容"
-
-        if len(combined) < 30 and len(sentences) > 1:
-            # 太短，尝试补一句
-            for s in sentences[1:]:
-                candidate = combined + "。" + s
-                if len(candidate) <= 65:
-                    combined = candidate
-                    break
-
-        # 根据问题类型加前缀
-        if is_yes_no:
-            if "增加" in clean or "新增" in clean or "支持" in clean or "主动" in clean:
-                return f"支持，{combined}"
-            return f"暂不支持"
-        elif is_how:
-            return combined
-        else:
-            return combined
-
-    def _extract_first_feature(self, text):
-        """提取第一个功能点简述，不超过30字"""
-        text = re.sub(r"!\[.*?\]\(.*?\)", "", text)
-        text = re.sub(r"\*\*", "", text)
-        first = text.split("。")[0].split("；")[0].strip()
-        first = re.sub(r"^[①②③④⑤\d]+[.、)\s]*", "", first)
-        if "：" in first:
-            first = first.split("：", 1)[1].strip()
-        if len(first) > 30:
-            first = first[:30] + "..."
-        return first
-
-    def _extract_action(self, text):
-        """提取具体操作/动作"""
-        # 找"点击【X】按钮"或"点击【X】-【Y】"类操作
-        m = re.search(r"点击【(.+?)】[-\s]*【(.+?)】", text)
-        if m:
-            return f"在{m.group(1)}页面点击{m.group(2)}即可"
-        m = re.search(r"点击【(.+?)】按钮[后]?(.+?)[。；]", text)
-        if m:
-            action = m.group(2).strip()[:30]
-            return f"点击{m.group(1)}即可{action}"
-        m = re.search(r"点击【(.+?)】", text)
-        if m:
-            return f"点击{m.group(1)}即可"
-
-        # 找"改为"后的新方式
-        m = re.search(r"改为直接(.+?)[。；，]", text)
-        if m:
-            return f"直接{m.group(1).strip()}"
-        m = re.search(r"改为(.+?)[。；，]", text)
-        if m:
-            return f"直接{m.group(1).strip()}"
-
-        # 找"主动"类动作
-        m = re.search(r"主动(.+?)[。；，]", text)
-        if m:
-            return f"系统会主动{m.group(1).strip()}"
-
-        return ""
-
-    def _infer_conclusion(self, query, heading, content):
-        """根据查询和内容推断结论性回答"""
-        yes_no_patterns = ["可以", "能不能", "是否", "支持", "有没有", "会不会"]
-        is_yes_no = any(p in query for p in yes_no_patterns)
-
-        if is_yes_no:
-            if "增加" in content or "新增" in content or "支持" in content or "主动" in content:
-                return "✅ **支持。**"
-            return "❌ **暂不支持。**"
-
-        how_patterns = ["怎么", "如何", "怎样", "怎么办"]
-        if any(p in query for p in how_patterns):
-            return f"🔧 **处理方案：**"
-
-        return f"📖 **查询结果：**"
+        return '\n'.join(parts) if parts else f'关于「{query}」，未在知识库中找到直接相关内容。建议尝试更具体的关键词或联系相关模块负责人。'
 
     # -------- FAQ cache --------
 
