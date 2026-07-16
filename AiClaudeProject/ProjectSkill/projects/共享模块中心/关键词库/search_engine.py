@@ -1647,7 +1647,12 @@ def main():
         engine._load_module_files()
         engine._load_knowledge_base()
         engine._load_report_data()
+        engine._load_bm25_index()
         engine.save_cache()
+
+    # Ensure BM25 is loaded (not stored in JSON cache)
+    if engine.bm25 is None:
+        engine._load_bm25_index()
 
     if not args.query:
         print(json.dumps({"error": "请提供查询内容"}, ensure_ascii=False))
