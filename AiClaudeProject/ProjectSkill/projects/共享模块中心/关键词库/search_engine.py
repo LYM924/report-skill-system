@@ -238,6 +238,98 @@ class SearchEngine:
             except Exception:
                 self.faq_cache = {}
 
+    def seed_faq_cache(self):
+        """从 KB 文件和模块文件提取种子 FAQ，批量写入 faq_cache.json。
+
+        来源1: KB 文件中的 FAQ/常见问题章节
+        来源2: 模块文件关键词 → 生成"什么是XX"类问题
+        """
+        import hashlib
+        from datetime import datetime
+
+        seeds = []
+        seen_queries = set()
+
+        # 来源1: KB 文件中的 FAQ 章节
+        for doc in self.kb_docs:
+            full_path = PROJECT_DIR / doc['path']
+            if not full_path.exists():
+                continue
+            try:
+                content = full_path.read_text(encoding='utf-8')
+            except Exception:
+                continue
+
+            # 查找 FAQ 章节
+            faq_match = re.search(
+                r'##\s*(?:FAQ|常见问题|故障库|常见问题&故障库).*?\n(.*?)(?=\n##\s+\w|\Z)',
+                content, re.DOTALL
+            )
+            if faq_match:
+                # 提取 Q&A 对
+                qa_pairs = re.findall(
+                    r'###\s*Q:\s*(.+?)\n(.*?)(?=\n###\s*Q:|\n##\s|\Z)',
+                    faq_match.group(1), re.DOTALL
+                )
+                for q, a in qa_pairs:
+                    q = q.strip()
+                    if q in seen_queries:
+                        continue
+                    seen_queries.add(q)
+                    seeds.append({
+                        'query': q,
+                        'answer': a.strip()[:800],
+                        'keywords': [t.strip() for t in jieba.cut(q) if len(t.strip()) >= 2],
+                        'module': doc.get('domain', ''),
+                        'dept': doc.get('dept', ''),
+                        'domain': doc.get('domain', ''),
+                    })
+
+        # 来源2: 模块文件关键词 → 生成基础问答
+        for mod_name, info in self.module_map.items():
+            keywords = info.get('keywords', [])
+            for kw in keywords[:3]:
+                q = f'{kw}是什么'
+                if q in seen_queries:
+                    continue
+                seen_queries.add(q)
+                dept = info.get('dept', '')
+                domain = info.get('domain', '')
+                owner = info.get('module_owner', '')
+                dev = info.get('dev_owner', '')
+                owner_str = f'{owner}（研发 {dev}）' if dev else owner
+                answer = (
+                    f'{kw}属于「{mod_name}」模块'
+                    + (f'（{domain} / {dept}）' if domain else '')
+                    + (f'，由{owner_str}负责。' if owner_str else '。')
+                )
+                seeds.append({
+                    'query': q,
+                    'answer': answer,
+                    'keywords': [kw, mod_name],
+                    'module': mod_name,
+                    'dept': dept,
+                    'domain': domain,
+                })
+
+        # 批量写入
+        for seed in seeds:
+            fp = hashlib.md5(seed['query'].encode()).hexdigest()[:12]
+            if fp not in self.faq_cache:
+                self.faq_cache[fp] = {
+                    'query': seed['query'],
+                    'answer': seed['answer'],
+                    'keywords': seed['keywords'],
+                    'module': seed['module'],
+                    'saved_at': datetime.now().strftime('%Y-%m-%d %H:%M'),
+                }
+
+        # 持久化
+        with open(self.faq_cache_file, 'w', encoding='utf-8') as f:
+            json.dump(self.faq_cache, f, ensure_ascii=False, indent=2)
+
+        return len(seeds)
+
     def _load_bm25_index(self):
         """加载或构建 BM25 索引"""
         self.bm25 = BM25Index()
@@ -1387,10 +1479,21 @@ def main():
     parser.add_argument("query", nargs="?", default="", help="查询内容")
     parser.add_argument("--top", type=int, default=10, help="返回结果数")
     parser.add_argument("--rebuild", action="store_true", help="重建索引缓存")
+    parser.add_argument("--seed-faq", action="store_true", help="填充 FAQ 种子数据")
     parser.add_argument("--json", action="store_true", help="输出原始 JSON")
     args = parser.parse_args()
 
     engine = SearchEngine()
+
+    if args.seed_faq:
+        engine._load_synonyms()
+        engine._load_keyword_index()
+        engine._load_module_files()
+        engine._load_knowledge_base()
+        engine._load_faq_cache()
+        count = engine.seed_faq_cache()
+        print(f"FAQ 种子数据已填充，共 {count} 条")
+        sys.exit(0)
 
     if args.rebuild or not engine.load_cache():
         engine._load_synonyms()
