@@ -16,6 +16,7 @@ import jieba
 import logging
 jieba.setLogLevel(logging.WARNING)
 from pypinyin import lazy_pinyin, Style
+from bm25_index import BM25Index
 
 # ---------- paths ----------
 HERE = Path(__file__).resolve().parent
@@ -39,6 +40,8 @@ class SearchEngine:
         self.synonyms = {}  # word -> [aliases]
         self.faq_cache = {}  # 回答缓存: {fingerprint: {query, answer, keywords, module, saved_at}}
         self.faq_cache_file = HERE / "faq_cache.json"
+        self.bm25 = None
+        self.bm25_cache_file = HERE / "bm25_index.pkl"
 
     # -------- load --------
 
@@ -49,6 +52,7 @@ class SearchEngine:
         self._load_knowledge_base()
         self._load_report_data()
         self._load_faq_cache()
+        self._load_bm25_index()
 
     def _load_synonyms(self):
         if SYNONYMS_FILE.exists():
@@ -189,8 +193,8 @@ class SearchEngine:
                 text = md_file.read_text(encoding="utf-8")
             except Exception:
                 continue
-            # 提取前2000字符作为内容样本
-            sample = text[:2000]
+            # 提取前 5000 字符作为内容样本（从 2000 提升，确保捕获更多业务内容）
+            sample = text[:5000]
             rel_path = str(md_file.relative_to(PROJECT_DIR))
 
             # 推断所属业务域
@@ -215,7 +219,7 @@ class SearchEngine:
                 text = md_file.read_text(encoding="utf-8")
             except Exception:
                 continue
-            sample = text[:2000]
+            sample = text[:5000]
             rel_path = str(md_file.relative_to(PROJECT_DIR))
 
             self.report_docs.append({
@@ -232,6 +236,34 @@ class SearchEngine:
                     self.faq_cache = json.load(f)
             except Exception:
                 self.faq_cache = {}
+
+    def _load_bm25_index(self):
+        """加载或构建 BM25 索引"""
+        self.bm25 = BM25Index()
+        if self.bm25_cache_file.exists():
+            self.bm25.load(str(self.bm25_cache_file))
+            return
+
+        # 首次构建：读取所有 KB 文件全文
+        kb_contents = []
+        for doc in self.kb_docs:
+            full_path = PROJECT_DIR / doc['path']
+            if not full_path.exists():
+                continue
+            try:
+                content = full_path.read_text(encoding='utf-8')
+            except Exception:
+                content = ''
+            kb_contents.append({
+                'path': doc['path'],
+                'content': content,
+                'dept': doc.get('dept', ''),
+                'domain': doc.get('domain', ''),
+            })
+
+        if kb_contents:
+            self.bm25.build(kb_contents)
+            self.bm25.save(str(self.bm25_cache_file))
 
     def _extract_title(self, text):
         """提取文档标题"""
@@ -699,9 +731,9 @@ class SearchEngine:
                         full_path = PROJECT_DIR / path
                         if full_path.exists():
                             full_content = full_path.read_text(encoding="utf-8")
-                            # 限制单个文件最多 8000 字符，避免 prompt 过长
-                            if len(full_content) > 8000:
-                                full_content = full_content[:8000] + "\n\n...(内容过长，已截断)..."
+                            # 限制单个文件最多 12000 字符
+                            if len(full_content) > 12000:
+                                full_content = full_content[:12000] + "\n\n...(内容过长，已截断)..."
                             full_docs.append({
                                 "path": path,
                                 "content": full_content,
@@ -709,7 +741,7 @@ class SearchEngine:
                             })
                     except Exception:
                         pass
-                if len(full_docs) >= 2:  # 最多读 2 个完整文件
+                if len(full_docs) >= 3:  # 从 2 提升到 3 个完整文件
                     break
 
             system_parts.append("## 知识库文档（完整内容）")
@@ -748,7 +780,9 @@ class SearchEngine:
         }
 
     def _deep_search_kb(self, query, expanded, results, priority_dirs=None):
-        """读取知识库文件全文，提取与查询相关的段落"""
+        """读取知识库文件全文，提取与查询相关的段落。
+        排序策略：优先读取第一轮搜索中匹配到的文件（按相关性），再读取关键词目录中剩余文件（按字母序）。
+        """
         sections = []
 
         # 收集需要搜索的 KB 文件路径
@@ -783,12 +817,29 @@ class SearchEngine:
                         for f in kb_dir.rglob("*.md"):
                             kb_paths.add(str(f.relative_to(PROJECT_DIR)))
 
-        # 排序：优先路径在前，其余按字母序
-        sorted_paths = sorted(priority_paths) + sorted(kb_paths - priority_paths)
-
-        # 对每个文件做深度搜索
+        # === 关键修复：按相关性排序，而非字母序 ===
+        # 1. 第一轮 KB 搜索中命中（score > 0）的文件排最前面，按 score 降序
+        # 2. 关键词目录中其他文件，按字母序排在后面
         search_terms = list(expanded) + [query]
-        for path in sorted_paths[:5]:  # 最多读5个文件，优先路径在前
+
+        # 收集第一轮搜索命中的文件及其分数
+        kb_hit_scores = {}  # path -> max_score
+        for r in results:
+            if r.get("source") == "knowledge_base" and r.get("path"):
+                path = r["path"]
+                if path in priority_paths or path in kb_paths:
+                    kb_hit_scores[path] = max(kb_hit_scores.get(path, 0), r.get("score", 0))
+
+        # 排序：命中的文件按分数降序在前，分数相同时按日期降序（最新文件优先）
+        # 文件名如 2026-07-07_版本迭代.md，sort reverse 即可实现日期降序
+        hit_paths = sorted(kb_hit_scores.keys(), key=lambda p: (kb_hit_scores[p], p), reverse=True)
+        remaining_priority = sorted(priority_paths - set(hit_paths), reverse=True)
+        remaining_other = sorted(kb_paths - priority_paths - set(hit_paths), reverse=True)
+
+        sorted_paths = hit_paths + remaining_priority + remaining_other
+
+        # 对每个文件做深度搜索（上限从 5 提升到 15）
+        for path in sorted_paths[:15]:
             full_path = PROJECT_DIR / path
             if not full_path.exists():
                 continue
@@ -816,7 +867,7 @@ class SearchEngine:
                         "path": path,
                         "heading": seg["heading"],
                         "parent_heading": seg.get("parent_heading", ""),
-                        "content": seg["content"][:800],
+                        "content": seg["content"][:1500],
                         "images": [{"alt": alt, "src": src} for alt, src in images],
                         "score": score,
                         "line_start": seg.get("line_start", 0),
@@ -833,17 +884,23 @@ class SearchEngine:
         if sections:
             chapter_group = self._build_chapter_group(sections[0])
 
-        return sections[:4], [str(p) for p in sorted_paths[:5]], chapter_group
+        return sections[:4], [str(p) for p in sorted_paths[:15]], chapter_group
 
     def _search_raw_docs(self, query, expanded):
-        """搜索原始产品文档"""
+        """搜索原始产品文档。
+        排序策略：优先按文件名中的日期排序（最新日期在前），确保最新文档被优先搜索。
+        """
         raw_dir = PROJECT_DIR / "原始产品文档"
         if not raw_dir.exists():
             return []
 
         sections = []
         search_terms = list(expanded) + [query]
-        for f in sorted(raw_dir.rglob("*.md"))[:8]:
+
+        # 按日期降序排列文件（最新在前），文件名如 2026-07-07.md
+        all_files = sorted(raw_dir.rglob("*.md"), reverse=True)
+
+        for f in all_files[:15]:  # 上限从 8 提升到 15
             try:
                 content = f.read_text(encoding="utf-8")
             except Exception:
@@ -859,7 +916,7 @@ class SearchEngine:
                     sections.append({
                         "path": str(f.relative_to(PROJECT_DIR)),
                         "heading": seg["heading"],
-                        "content": seg["content"][:800],
+                        "content": seg["content"][:1500],
                         "score": score,
                         "line_start": seg.get("line_start", 0),
                     })
@@ -1552,6 +1609,10 @@ class SearchEngine:
         }
         with open(CACHE_FILE, "w", encoding="utf-8") as f:
             json.dump(cache, f, ensure_ascii=False, indent=2)
+
+        # Also save BM25 index
+        if self.bm25 and self.bm25.N > 0:
+            self.bm25.save(str(self.bm25_cache_file))
 
     def load_cache(self):
         """加载索引缓存"""
