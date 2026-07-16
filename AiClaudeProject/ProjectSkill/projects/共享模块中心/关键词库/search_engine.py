@@ -11,6 +11,7 @@ import os
 import sys
 from pathlib import Path
 from collections import defaultdict
+from datetime import date
 
 import jieba
 import logging
@@ -823,11 +824,10 @@ class SearchEngine:
                 faq_bonus = 2.0 if is_faq else 0
 
                 # 文档新鲜度
-                date = self._extract_date_from_path(path)
+                doc_date = self._extract_date_from_path(path)
                 freshness = 1.0
-                if date:
-                    from datetime import date as date_type
-                    days_ago = (date_type.today() - date).days
+                if doc_date:
+                    days_ago = (date.today() - doc_date).days
                     if days_ago > 365:
                         freshness = max(0.5, 1.0 - (days_ago - 365) / 365)
 
@@ -863,18 +863,30 @@ class SearchEngine:
         paths = []
         if priority_dirs:
             for d in priority_dirs:
-                for f in sorted(d.rglob('*.md'), reverse=True):
+                for f in sorted(d.rglob('*.md'), reverse=True):  # reverse for date-descending filenames like 2026-07-07_*.md
                     paths.append(str(f.relative_to(PROJECT_DIR)))
         for r in results:
             if r.get('source') == 'knowledge_base' and r.get('path'):
                 if r['path'] not in paths:
                     paths.append(r['path'])
+        # Also search KB directories linked to matched modules
+        for r in results:
+            module = r.get('module')
+            if module:
+                info = self.module_map.get(module, {})
+                dept = info.get('dept', '')
+                domain = info.get('domain', '')
+                if dept and domain:
+                    kb_dir = self._domain_to_kb_dir(dept, domain)
+                    if kb_dir and kb_dir.exists():
+                        for f in kb_dir.rglob('*.md'):
+                            fpath = str(f.relative_to(PROJECT_DIR))
+                            if fpath not in paths:
+                                paths.append(fpath)
         return paths
 
     def _extract_date_from_path(self, path):
         """从文件路径中提取日期，如 2026-07-07_版本迭代.md → date(2026, 7, 7)"""
-        import re
-        from datetime import date
         m = re.search(r'(\d{4})-(\d{2})-(\d{2})', path)
         if m:
             try:
