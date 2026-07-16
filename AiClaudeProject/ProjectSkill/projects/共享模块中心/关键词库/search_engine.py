@@ -780,111 +780,108 @@ class SearchEngine:
         }
 
     def _deep_search_kb(self, query, expanded, results, priority_dirs=None):
-        """读取知识库文件全文，提取与查询相关的段落。
-        排序策略：优先读取第一轮搜索中匹配到的文件（按相关性），再读取关键词目录中剩余文件（按字母序）。
+        """两阶段深度搜索 KB 文档。
+
+        S1: BM25 文档级筛选 → Top-10 文档
+        S2: 段落级精细匹配 → Top-5 段落
         """
         sections = []
-
-        # 收集需要搜索的 KB 文件路径
-        kb_paths = set()
-        priority_paths = set()
-
-        # 优先：关键词匹配的目录
-        if priority_dirs:
-            for d in priority_dirs:
-                for f in d.rglob("*.md"):
-                    priority_paths.add(str(f.relative_to(PROJECT_DIR)))
-
-        for r in results:
-            if r.get("source") == "knowledge_base" and r.get("path"):
-                kb_paths.add(r["path"])
-            if r.get("kb_path"):
-                kb_dir = PROJECT_DIR / r["kb_path"]
-                if kb_dir.exists():
-                    for f in kb_dir.rglob("*.md"):
-                        kb_paths.add(str(f.relative_to(PROJECT_DIR)))
-
-        # 也搜索所有匹配模块可能关联的知识库目录
-        for r in results:
-            module = r.get("module")
-            if module:
-                info = self.module_map.get(module, {})
-                dept = info.get("dept", "")
-                domain = info.get("domain", "")
-                if dept and domain:
-                    kb_dir = self._domain_to_kb_dir(dept, domain)
-                    if kb_dir and kb_dir.exists():
-                        for f in kb_dir.rglob("*.md"):
-                            kb_paths.add(str(f.relative_to(PROJECT_DIR)))
-
-        # === 关键修复：按相关性排序，而非字母序 ===
-        # 1. 第一轮 KB 搜索中命中（score > 0）的文件排最前面，按 score 降序
-        # 2. 关键词目录中其他文件，按字母序排在后面
         search_terms = list(expanded) + [query]
 
-        # 收集第一轮搜索命中的文件及其分数
-        kb_hit_scores = {}  # path -> max_score
-        for r in results:
-            if r.get("source") == "knowledge_base" and r.get("path"):
-                path = r["path"]
-                if path in priority_paths or path in kb_paths:
-                    kb_hit_scores[path] = max(kb_hit_scores.get(path, 0), r.get("score", 0))
+        # S1: BM25 文档级筛选
+        if self.bm25 and self.bm25.N > 0:
+            doc_results = self.bm25.search(search_terms, k=10)
+            doc_paths = [p for p, score in doc_results]
+        else:
+            # Fallback: 使用原有的 priority_dirs + kb_paths 逻辑
+            doc_paths = self._collect_kb_paths_fallback(results, priority_dirs)
 
-        # 排序：命中的文件按分数降序在前，分数相同时按日期降序（最新文件优先）
-        # 文件名如 2026-07-07_版本迭代.md，sort reverse 即可实现日期降序
-        hit_paths = sorted(kb_hit_scores.keys(), key=lambda p: (kb_hit_scores[p], p), reverse=True)
-        remaining_priority = sorted(priority_paths - set(hit_paths), reverse=True)
-        remaining_other = sorted(kb_paths - priority_paths - set(hit_paths), reverse=True)
-
-        sorted_paths = hit_paths + remaining_priority + remaining_other
-
-        # 对每个文件做深度搜索（上限从 5 提升到 15）
-        for path in sorted_paths[:15]:
+        # S2: 段落级精细匹配
+        for path in doc_paths[:10]:
             full_path = PROJECT_DIR / path
             if not full_path.exists():
                 continue
             try:
-                content = full_path.read_text(encoding="utf-8")
+                content = full_path.read_text(encoding='utf-8')
             except Exception:
                 continue
 
-            # 按 ### 标题分段
             segments = self._split_by_heading(content, path)
             for seg in segments:
-                # 跳过文档开头元数据（KB文件的前言部分）
-                if seg["heading"] == "(文档开头)":
+                if seg['heading'] == '(文档开头)':
                     continue
-                score = self._match_score(seg["content"], search_terms)
-                # 标题匹配大幅加分（标题匹配的段落更相关）
-                heading_score = self._match_score(seg["heading"], search_terms) * 5
-                # 父级 ## 标题匹配也加分（帮助区分同名 ### 标题）
-                parent_heading_score = self._match_score(seg.get("parent_heading", ""), search_terms) * 1.5
-                score += heading_score + parent_heading_score
-                if score >= 2:
-                    # 提取图片
-                    images = re.findall(r"!\[([^\]]*)\]\(([^)]+)\)", seg["content"])
+
+                # 多维评分
+                keyword_score = self._match_score(seg['content'], search_terms)
+                heading_score = self._match_score(seg['heading'], search_terms) * 3
+                parent_heading_score = self._match_score(
+                    seg.get('parent_heading', ''), search_terms
+                ) * 1.5
+
+                # FAQ 区域加权
+                is_faq = any(kw in seg['heading'] for kw in ['FAQ', '常见问题', '故障', '排查'])
+                faq_bonus = 2.0 if is_faq else 0
+
+                # 文档新鲜度
+                date = self._extract_date_from_path(path)
+                freshness = 1.0
+                if date:
+                    from datetime import date as date_type
+                    days_ago = (date_type.today() - date).days
+                    if days_ago > 365:
+                        freshness = max(0.5, 1.0 - (days_ago - 365) / 365)
+
+                total_score = (
+                    keyword_score * 0.4
+                    + heading_score * 0.25
+                    + parent_heading_score * 0.15
+                    + faq_bonus * 0.1
+                ) * freshness
+
+                if total_score >= 0.5:
+                    images = re.findall(r'!\[([^\]]*)\]\(([^)]+)\)', seg['content'])
                     sections.append({
-                        "path": path,
-                        "heading": seg["heading"],
-                        "parent_heading": seg.get("parent_heading", ""),
-                        "content": seg["content"][:1500],
-                        "images": [{"alt": alt, "src": src} for alt, src in images],
-                        "score": score,
-                        "line_start": seg.get("line_start", 0),
+                        'path': path,
+                        'heading': seg['heading'],
+                        'parent_heading': seg.get('parent_heading', ''),
+                        'content': seg['content'][:1500],
+                        'images': [{'alt': alt, 'src': src} for alt, src in images],
+                        'score': total_score,
+                        'line_start': seg.get('line_start', 0),
                     })
 
-        # 排序：优先按总分排序，总分相同时优先标题匹配
-        sections.sort(key=lambda s: (
-            s["score"],
-            self._match_score(s["heading"], search_terms),
-        ), reverse=True)
+        sections.sort(key=lambda s: s['score'], reverse=True)
 
-        # 为最佳匹配段落构建章节组（同父章节下所有子节完整内容）
         chapter_group = None
         if sections:
             chapter_group = self._build_chapter_group(sections[0])
 
-        return sections[:4], [str(p) for p in sorted_paths[:15]], chapter_group
+        return sections[:5], doc_paths[:10], chapter_group
+
+    def _collect_kb_paths_fallback(self, results, priority_dirs=None):
+        """Fallback: 当 BM25 不可用时，从 results 和 priority_dirs 收集 KB 文档路径"""
+        paths = []
+        if priority_dirs:
+            for d in priority_dirs:
+                for f in sorted(d.rglob('*.md'), reverse=True):
+                    paths.append(str(f.relative_to(PROJECT_DIR)))
+        for r in results:
+            if r.get('source') == 'knowledge_base' and r.get('path'):
+                if r['path'] not in paths:
+                    paths.append(r['path'])
+        return paths
+
+    def _extract_date_from_path(self, path):
+        """从文件路径中提取日期，如 2026-07-07_版本迭代.md → date(2026, 7, 7)"""
+        import re
+        from datetime import date
+        m = re.search(r'(\d{4})-(\d{2})-(\d{2})', path)
+        if m:
+            try:
+                return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            except ValueError:
+                pass
+        return None
 
     def _search_raw_docs(self, query, expanded):
         """搜索原始产品文档。
