@@ -1,0 +1,13 @@
+⏺ 已创建快捷启动脚本。后续启动服务只需在项目根目录执行：
+
+  ./scripts/start_search.sh
+
+  路径：scripts/start_search.sh，已添加可执行权限。
+
+✻ Sautéed for 23s · 1 shell still running
+  
+❯ 是直接在终端命令行直接执行 ./scripts/start_search.sh这个命令就可以启动吗                                                                                                               
+
+⏺ 是的，在项目根目录 /Users/zcy1/Desktop/ClaudeProject 下执行 ./scripts/start_search.sh 即可启动。
+
+

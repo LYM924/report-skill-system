@@ -74,6 +74,15 @@ class SearchHandler(SimpleHTTPRequestHandler):
             # 1. 常规搜索
             result = eng.search(query, top=top)
 
+            # 1b. Add quick summary for immediate display
+            ans = result.get('answer', {})
+            result['quick_summary'] = {
+                'module': ans.get('module', ''),
+                'dept': ans.get('dept', ''),
+                'owner': ans.get('module_owner', ''),
+                'snippet': ans.get('summary', '')[:200] if ans.get('summary') else '',
+            }
+
             # 2. 构建 Claude prompt 并生成 stream URL
             api_key = os.environ.get("ANTHROPIC_AUTH_TOKEN", "") or os.environ.get("ANTHROPIC_API_KEY", "")
             if api_key:

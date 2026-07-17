@@ -191,6 +191,30 @@
     content: ''; flex: 1; height: 1px; background: var(--border);
   }
 
+  /* Quick Summary Card */
+  #quick-summary { margin-bottom: 16px; }
+  .quick-summary-card {
+    background: linear-gradient(135deg, rgba(240,184,73,0.08) 0%, rgba(108,140,255,0.04) 100%);
+    border: 1px solid rgba(240,184,73,0.3);
+    border-radius: var(--radius); padding: 18px 22px;
+    animation: fadeIn 0.3s ease both;
+  }
+  .quick-summary-card h3 {
+    font-size: 0.95rem; font-weight: 600; color: var(--text);
+    margin-bottom: 10px; letter-spacing: -0.01em;
+  }
+  .quick-summary-card p {
+    font-size: 0.85rem; color: var(--text-muted); margin: 4px 0;
+    line-height: 1.6;
+  }
+  .quick-summary-card p strong { color: var(--text); }
+  .quick-summary-card .snippet {
+    margin-top: 8px; padding-top: 8px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    font-size: 0.82rem; color: var(--text-dim);
+    line-height: 1.7;
+  }
+
   /* Process Panel */
   .process-panel {
     background: var(--bg-card); border: 1px solid var(--border);
@@ -416,6 +440,7 @@
     </div>
   </div>
 
+  <div id="quick-summary" style="display:none;"></div>
   <div id="searchInfo" class="search-info" style="display:none"></div>
   <div id="results"></div>
   <div id="status" class="status">
@@ -494,6 +519,9 @@
   function renderResults(data) {
     $('#status').style.display = 'none';
     state.results = data.results || [];
+
+    // Show quick summary immediately
+    showQuickSummary(data);
 
     // 缓存命中：直接显示缓存的 Claude 回答
     if (data.from_cache && data.cached_answer) {
@@ -583,6 +611,25 @@
     if (data.claude_stream_url) {
       connectClaudeStream(data.claude_stream_url);
     }
+  }
+
+  // Display quick summary immediately
+  function showQuickSummary(data) {
+      const summaryDiv = document.getElementById('quick-summary');
+      if (data.quick_summary && data.quick_summary.module) {
+          const qs = data.quick_summary;
+          summaryDiv.innerHTML = `
+              <div class="quick-summary-card">
+                  <h3>🔍 快速定位</h3>
+                  <p><strong>模块：</strong>${qs.module}</p>
+                  ${qs.dept ? `<p><strong>部门：</strong>${qs.dept}</p>` : ''}
+                  ${qs.owner ? `<p><strong>负责人：</strong>${qs.owner}</p>` : ''}
+                  ${qs.snippet ? `<p class="snippet">${qs.snippet}</p>` : ''}
+              </div>`;
+          summaryDiv.style.display = 'block';
+      } else {
+          summaryDiv.style.display = 'none';
+      }
   }
 
   function renderAnswerCard(answer) {

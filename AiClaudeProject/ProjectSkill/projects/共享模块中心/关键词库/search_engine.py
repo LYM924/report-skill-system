@@ -367,10 +367,14 @@ class SearchEngine:
 
     def _load_vector_index(self):
         """加载或构建向量索引"""
-        self.vector = VectorIndex()
         if self.vector_index_file.exists() and self.vector_meta_file.exists():
+            # 有预构建索引文件，直接加载（无需下载模型）
+            self.vector = VectorIndex.__new__(VectorIndex)
+            self.vector.model = None
             self.vector.load(str(self.vector_index_file), str(self.vector_meta_file))
             return
+
+        self.vector = VectorIndex()
 
         # 首次构建：对所有 KB 文档段落生成 embedding
         segments = []
@@ -672,7 +676,7 @@ class SearchEngine:
     def _search_vector(self, query, expanded):
         """向量语义检索 KB 段落"""
         results = []
-        if self.vector is None or self.vector.index is None:
+        if self.vector is None or self.vector.index is None or self.vector.model is None:
             return results
 
         vec_results = self.vector.search(query, k=10)
@@ -1428,16 +1432,26 @@ class SearchEngine:
             entry_keywords = set(entry.get('keywords', []))
             if not entry_keywords:
                 continue
-            overlap = query_tokens & entry_keywords
-            if len(overlap) >= 2:
-                score = len(overlap)
-                if query.strip() == entry.get('query', '').strip():
-                    score += 10
-                if score > best_score:
-                    best_score = score
-                    best_match = entry
 
-        return best_match if best_score >= 3 else None
+            # 1. 精确查询匹配（最高优先级）
+            if query.strip() == entry.get('query', '').strip():
+                return entry
+
+            # 2. 关键词重叠匹配
+            overlap = query_tokens & entry_keywords
+            score = len(overlap) * 2  # 每个重叠词 2 分
+
+            # 3. 子串匹配：查询词出现在关键词中
+            for qt in query_tokens:
+                for ek in entry_keywords:
+                    if qt in ek or ek in qt:
+                        score += 1
+
+            if score >= 2 and score > best_score:
+                best_score = score
+                best_match = entry
+
+        return best_match if best_score >= 2 else None
 
     def save_faq(self, query, claude_answer, module_name, dept, domain, keywords):
         """保存 Claude 回答到 FAQ 缓存和知识库 FAQ 文件。
