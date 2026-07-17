@@ -15,6 +15,7 @@ sys.path.insert(0, str(HERE))
 from search_engine import SearchEngine
 
 engine = None
+SESSION_STORE = {}  # session_id -> context dict, avoids URL length limit
 
 def get_engine():
     global engine
@@ -83,15 +84,19 @@ class SearchHandler(SimpleHTTPRequestHandler):
                 'snippet': ans.get('summary', '')[:200] if ans.get('summary') else '',
             }
 
-            # 2. 构建 Claude prompt 并生成 stream URL
+            # 2. 构建 Claude prompt 并存储到 session store（避免 URL 过长导致 414）
             api_key = os.environ.get("ANTHROPIC_AUTH_TOKEN", "") or os.environ.get("ANTHROPIC_API_KEY", "")
             if api_key:
                 prompt = eng.build_claude_prompt(query, result.get("results", []))
-                context_json = json.dumps(prompt, ensure_ascii=False)
-                context_encoded = url_quote(context_json)
-                result["claude_stream_url"] = "/api/claude-stream?q={}&context={}".format(
-                    url_quote(query), context_encoded
-                )
+                import uuid, time
+                sid = uuid.uuid4().hex[:12]
+                SESSION_STORE[sid] = {"prompt": prompt, "query": query, "created": time.time()}
+                # 清理超过 10 分钟的旧 session
+                now = time.time()
+                for k in list(SESSION_STORE.keys()):
+                    if now - SESSION_STORE[k].get("created", 0) > 600:
+                        del SESSION_STORE[k]
+                result["claude_stream_url"] = "/api/claude-stream?sid={}".format(sid)
             else:
                 result["claude_stream_url"] = None
 
@@ -108,23 +113,22 @@ class SearchHandler(SimpleHTTPRequestHandler):
             self._json({"ok": True, "message": "索引已重建"})
         elif parsed.path == "/api/claude-stream":
             params = parse_qs(parsed.query)
-            query = params.get("q", [""])[0].strip()
-            context_json = params.get("context", ["{}"])[0]
+            sid = params.get("sid", [""])[0]
 
-            if not query:
-                self._json({"error": "请提供查询参数 q"})
+            if not sid or sid not in SESSION_STORE:
+                self._sse_send({"error": "会话已过期，请重新搜索"})
+                self._sse_done()
                 return
+
+            session = SESSION_STORE.pop(sid)  # 取出后删除，防止重复使用
+            query = session.get("query", "")
+            context = session.get("prompt", {})
 
             api_key = os.environ.get("ANTHROPIC_AUTH_TOKEN", "") or os.environ.get("ANTHROPIC_API_KEY", "")
             if not api_key:
                 self._sse_send({"error": "未配置 ANTHROPIC_AUTH_TOKEN 或 ANTHROPIC_API_KEY 环境变量"})
                 self._sse_done()
                 return
-
-            try:
-                context = json.loads(context_json)
-            except json.JSONDecodeError:
-                context = {}
 
             self._handle_claude_stream(query, context, api_key)
             return
