@@ -799,137 +799,137 @@ class SearchEngine:
         return answer
 
     def build_claude_prompt(self, query, results):
-        """从检索结果中构建 Claude API 的 system prompt 和 user message。
+        """构建结构化 Claude API prompt。
+
         返回 dict: {"system": str, "messages": [{"role": "user", "content": str}]}
         """
         # 收集匹配的模块信息
         matched_modules = []
         seen_mod = set()
         for r in results:
-            m = r.get("module")
+            m = r.get('module')
             if m and m not in seen_mod:
                 seen_mod.add(m)
                 info = self.module_map.get(m, {})
                 matched_modules.append({
-                    "name": m,
-                    "dept": info.get("dept", ""),
-                    "domain": info.get("domain", ""),
-                    "dev_owner": info.get("dev_owner", ""),
-                    "module_owner": info.get("module_owner", ""),
+                    'name': m,
+                    'dept': info.get('dept', ''),
+                    'domain': info.get('domain', ''),
+                    'dev_owner': info.get('dev_owner', ''),
+                    'module_owner': info.get('module_owner', ''),
                 })
 
-        # 深度搜索 KB（复用已有逻辑，但不生成 answer，只取上下文）
-        # 计算分词和扩展词，确保深度搜索有匹配词可用
+        # 深度搜索 KB
         tokens = list(jieba.cut(query))
         tokens = [t.strip() for t in tokens if len(t.strip()) >= 1]
         expanded = self._expand_tokens(tokens) if tokens else set()
 
-        kb_sections = []
-        kb_files_searched = []
         priority_dirs = []
         for r in results:
             if r.get("source") == "keyword_index" and r.get("kb_path"):
                 kb_dir = PROJECT_DIR / r["kb_path"]
                 if kb_dir.exists():
                     priority_dirs.append(kb_dir)
-        if priority_dirs or results:
-            kb_sections, kb_files_searched, _ = self._deep_search_kb(
-                query, expanded, results, priority_dirs
-            )
 
-        # 搜索原始产品文档
+        kb_sections, kb_files_searched, _ = self._deep_search_kb(
+            query, expanded, results, priority_dirs
+        )
         raw_doc_sections = self._search_raw_docs(query, expanded)
-
-        # 搜索报表
         report_sections = self._search_reports_deep(query, expanded, results)
 
-        # 组装 system prompt
-        system_parts = [
-            "你是产品知识库助手，服务于数智财务（浙里报/孵化业务/徽报账）、电子档案、免疫规划、数字化支撑等全部业务模块的用户咨询。",
-            "",
-            "## 回答策略",
-            "1. 仔细阅读下方提供的文档内容，从中提取与用户问题相关的信息",
-            "2. 如果文档内容足够回答，直接给出准确答案，引用文档中的具体内容",
-            "3. 如果文档内容部分相关但不够完整，先给出文档中的信息，再结合你的知识补充",
-            "4. 如果文档完全不相关，不要编造，诚实说明知识库暂无此文档，然后基于你的知识给出参考回答",
-            "",
-            "## 回答要求",
-            "- 用中文回答，详细、专业、完整",
-            "- 如果有操作步骤，按步骤编号清晰列出",
-            "- 给出明确的结论，不要含糊其辞",
-            "- 结尾标注信息来源",
-            "- 在回答末尾，用以下 JSON 格式输出建议补充的关键词（仅输出 JSON，不放 markdown 代码块中）：",
-            '  {"keywords_to_add": ["关键词1", "关键词2"], "module": "所属模块名"}',
-            "",
-        ]
+        # 结构化 system prompt
+        system = """你是产品知识库助手，服务于数智财务（浙里报/孵化业务/徽报账）、电子档案、免疫规划、数字化支撑等全部业务模块的用户咨询。
+
+## 回答策略
+根据问题类型采用不同策略：
+- **功能咨询**（怎么用/在哪里/如何操作）：说明功能位置、菜单路径、操作步骤，按步骤编号列出
+- **问题排查**（报错/不能用/故障）：列出常见原因、排查步骤、负责人
+- **概念解释**（什么是/功能说明/介绍）：给出定义、适用范围、相关配置
+- **模块查询**（谁负责/归属哪个模块）：给出模块名、部门、负责人
+
+## 回答格式要求
+1. 先给出 1-2 句明确结论
+2. 如有操作步骤，用编号清晰列出每一步
+3. 如有注意事项/限制条件，单独列出
+4. 结尾标注信息来源文档路径
+
+## 重要规则
+- 用中文回答，详细、专业、完整
+- 如果文档内容足够回答，直接给出准确答案
+- 如果文档内容部分相关但不完整，先给出文档中的信息，再结合你的知识补充
+- 如果文档完全不相关，不要编造，诚实说明
+
+## 在回答末尾输出以下 JSON（不要放在 markdown 代码块中，直接输出）
+{"keywords_to_add": ["建议补充的关键词1", "关键词2"], "module": "所属模块名", "confidence": "high|medium|low"}
+"""
+
+        # 组装 user message
+        user_parts = [f"## 用户问题\n{query}\n"]
 
         if matched_modules:
-            system_parts.append("## 匹配的模块")
+            user_parts.append("## 匹配的模块")
             for mod in matched_modules[:3]:
-                system_parts.append(
+                user_parts.append(
                     f"- {mod['name']}（{mod['dept']}/{mod['domain']}）"
                     f" | 研发: {mod.get('dev_owner', '未知')}"
                     f" | 模块负责人: {mod.get('module_owner', '未知')}"
                 )
-            system_parts.append("")
+            user_parts.append("")
 
         if kb_sections:
-            # 收集最相关的 KB 文件，读取完整内容（而非截断片段）
             seen_files = set()
             full_docs = []
             for sec in kb_sections:
-                path = sec.get("path", "")
+                path = sec.get('path', '')
                 if path and path not in seen_files:
                     seen_files.add(path)
                     try:
                         full_path = PROJECT_DIR / path
                         if full_path.exists():
-                            full_content = full_path.read_text(encoding="utf-8")
-                            # 限制单个文件最多 12000 字符
+                            full_content = full_path.read_text(encoding='utf-8')
                             if len(full_content) > 12000:
-                                full_content = full_content[:12000] + "\n\n...(内容过长，已截断)..."
+                                full_content = full_content[:12000] + '\n\n...(内容过长，已截断)...'
                             full_docs.append({
-                                "path": path,
-                                "content": full_content,
-                                "score": sec.get("score", 0),
+                                'path': path,
+                                'content': full_content,
+                                'score': sec.get('score', 0),
                             })
                     except Exception:
                         pass
-                if len(full_docs) >= 3:  # 从 2 提升到 3 个完整文件
+                if len(full_docs) >= 3:
                     break
 
-            system_parts.append("## 知识库文档（完整内容）")
+            user_parts.append("## 知识库文档（完整内容）")
             for i, doc in enumerate(full_docs, 1):
-                rel_path = doc["path"].replace("2026产品业务知识库/", "")
-                system_parts.append(f"### 文档{i}: {rel_path}")
-                system_parts.append(doc["content"])
-                system_parts.append("")
-            system_parts.append("")
+                rel_path = doc['path'].replace('2026产品业务知识库/', '')
+                user_parts.append(f"### 文档{i}: {rel_path}")
+                user_parts.append(doc['content'])
+                user_parts.append("")
 
         if raw_doc_sections:
-            system_parts.append("## 原始产品文档")
+            user_parts.append("## 原始产品文档")
             for i, sec in enumerate(raw_doc_sections[:2], 1):
-                heading = sec["heading"].lstrip("#").strip()
-                system_parts.append(f"### [{i}] {heading}")
-                system_parts.append(sec["content"][:1000])
-                system_parts.append("")
-            system_parts.append("")
+                heading = sec['heading'].lstrip('#').strip()
+                user_parts.append(f"### [{i}] {heading}")
+                user_parts.append(sec['content'][:1000])
+                user_parts.append("")
 
         if report_sections:
-            system_parts.append("## 历史报表数据")
+            user_parts.append("## 历史报表数据")
             for i, sec in enumerate(report_sections[:1], 1):
-                system_parts.append(f"### [{i}] {sec['heading'].lstrip('#').strip()}")
-                system_parts.append(sec["content"][:800])
-            system_parts.append("")
+                user_parts.append(f"### [{i}] {sec['heading'].lstrip('#').strip()}")
+                user_parts.append(sec['content'][:800])
+            user_parts.append("")
+
+        user_parts.append("请根据以上文档内容回答用户问题。")
 
         return {
-            "system": "\n".join(system_parts),
-            "messages": [{"role": "user", "content": query}],
-            # 附带结构化数据，供后续 FAQ 保存使用
-            "_meta": {
-                "matched_modules": matched_modules,
-                "kb_sections": kb_sections,
-                "kb_files_searched": [str(p) for p in kb_files_searched],
+            'system': system,
+            'messages': [{'role': 'user', 'content': '\n'.join(user_parts)}],
+            '_meta': {
+                'matched_modules': matched_modules,
+                'kb_sections': kb_sections,
+                'kb_files_searched': [str(p) for p in kb_files_searched],
             },
         }
 
