@@ -13,11 +13,14 @@ from pathlib import Path
 from collections import defaultdict
 from datetime import date
 
+import numpy as np
+import faiss
 import jieba
 import logging
 jieba.setLogLevel(logging.WARNING)
 from pypinyin import lazy_pinyin, Style
 from bm25_index import BM25Index
+from vector_index import VectorIndex
 
 # ---------- paths ----------
 HERE = Path(__file__).resolve().parent
@@ -43,6 +46,9 @@ class SearchEngine:
         self.faq_cache_file = HERE / "faq_cache.json"
         self.bm25 = None
         self.bm25_cache_file = HERE / "bm25_index.pkl"
+        self.vector = None
+        self.vector_index_file = HERE / "vector_index.faiss"
+        self.vector_meta_file = HERE / "vector_meta.pkl"
 
     # -------- load --------
 
@@ -54,6 +60,7 @@ class SearchEngine:
         self._load_report_data()
         self._load_faq_cache()
         self._load_bm25_index()
+        self._load_vector_index()
 
     def _load_synonyms(self):
         if SYNONYMS_FILE.exists():
@@ -358,6 +365,37 @@ class SearchEngine:
             self.bm25.build(kb_contents)
             self.bm25.save(str(self.bm25_cache_file))
 
+    def _load_vector_index(self):
+        """加载或构建向量索引"""
+        self.vector = VectorIndex()
+        if self.vector_index_file.exists() and self.vector_meta_file.exists():
+            self.vector.load(str(self.vector_index_file), str(self.vector_meta_file))
+            return
+
+        # 首次构建：对所有 KB 文档段落生成 embedding
+        segments = []
+        for doc in self.kb_docs:
+            full_path = PROJECT_DIR / doc['path']
+            if not full_path.exists():
+                continue
+            try:
+                content = full_path.read_text(encoding='utf-8')
+            except Exception:
+                continue
+            for seg in self._split_by_heading(content, doc['path']):
+                if seg['heading'] == '(文档开头)' and len(seg['content']) < 100:
+                    continue
+                if len(seg['content']) >= 50:
+                    segments.append({
+                        'path': doc['path'],
+                        'heading': seg['heading'],
+                        'content': seg['content'],
+                    })
+
+        if segments:
+            self.vector.build(segments)
+            self.vector.save(str(self.vector_index_file), str(self.vector_meta_file))
+
     def _extract_title(self, text):
         """提取文档标题"""
         for line in text.split("\n"):
@@ -385,12 +423,14 @@ class SearchEngine:
         mod_results = self._search_modules(query, expanded)
         kb_results = self._search_kb(query, expanded)
         report_results = self._search_reports(query, expanded)
+        vec_results = self._search_vector(query, expanded)
 
         results = []
         results.extend(kw_results)
         results.extend(mod_results)
         results.extend(kb_results)
         results.extend(report_results)
+        results.extend(vec_results)
 
         # 4. 去重 + 排序
         results = self._deduplicate(results)
@@ -409,6 +449,7 @@ class SearchEngine:
                     "module_match": len(mod_results),
                     "knowledge_base": len(kb_results),
                     "report_data": len(report_results),
+                    "vector_search": len(vec_results),
                 },
                 "after_dedup_rank": len(results),
             },
@@ -626,6 +667,26 @@ class SearchEngine:
                     "snippets": snippets,
                     "score": min(score * 2, 7),
                 })
+        return results
+
+    def _search_vector(self, query, expanded):
+        """向量语义检索 KB 段落"""
+        results = []
+        if self.vector is None or self.vector.index is None:
+            return results
+
+        vec_results = self.vector.search(query, k=10)
+        for sec in vec_results:
+            results.append({
+                'source': 'vector_search',
+                'match_type': 'semantic',
+                'match_term': query,
+                'path': sec['path'],
+                'heading': sec['heading'],
+                'snippets': [sec['content'][:200]],
+                'score': min(sec.get('score', 0) * 10, 9),
+            })
+
         return results
 
     def _extract_snippets(self, text, terms, max_snippets=2, context_len=60):
@@ -1327,9 +1388,36 @@ class SearchEngine:
     # -------- FAQ cache --------
 
     def check_faq_cache(self, query):
-        """检查 FAQ 缓存中是否有匹配的回答。
-        返回匹配的缓存条目 dict，或 None。
-        """
+        """用 embedding 相似度匹配 FAQ 缓存。"""
+        if not self.faq_cache:
+            return None
+
+        if self.vector and self.vector.model:
+            query_emb = self.vector.encode(query)
+        else:
+            return self._check_faq_cache_fallback(query)
+
+        best_score = 0
+        best_entry = None
+
+        for fp, entry in self.faq_cache.items():
+            cached_emb = entry.get('embedding')
+            if cached_emb is None:
+                continue
+            cached_emb = np.array(cached_emb).astype('float32').reshape(1, -1)
+            faiss.normalize_L2(cached_emb)
+            sim = float(np.dot(query_emb, cached_emb.T)[0][0])
+
+            if sim > 0.85:
+                return entry
+            if sim > best_score:
+                best_score = sim
+                best_entry = entry
+
+        return best_entry if best_score > 0.75 else None
+
+    def _check_faq_cache_fallback(self, query):
+        """关键词交集 fallback"""
         query_tokens = set(jieba.cut(query))
         query_tokens = {t.strip() for t in query_tokens if len(t.strip()) >= 2}
 
@@ -1337,24 +1425,19 @@ class SearchEngine:
         best_score = 0
 
         for fp, entry in self.faq_cache.items():
-            entry_keywords = set(entry.get("keywords", []))
+            entry_keywords = set(entry.get('keywords', []))
             if not entry_keywords:
                 continue
             overlap = query_tokens & entry_keywords
             if len(overlap) >= 2:
                 score = len(overlap)
-                # 查询文本相似度加分
-                if query.strip() == entry.get("query", "").strip():
+                if query.strip() == entry.get('query', '').strip():
                     score += 10
-                elif query.strip() in entry.get("query", "") or entry.get("query", "") in query.strip():
-                    score += 5
                 if score > best_score:
                     best_score = score
                     best_match = entry
 
-        if best_match and best_score >= 3:
-            return best_match
-        return None
+        return best_match if best_score >= 3 else None
 
     def save_faq(self, query, claude_answer, module_name, dept, domain, keywords):
         """保存 Claude 回答到 FAQ 缓存和知识库 FAQ 文件。
@@ -1375,6 +1458,13 @@ class SearchEngine:
             "module": module_name,
             "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         }
+        # 附带 embedding 向量
+        if self.vector and self.vector.model:
+            try:
+                emb = self.vector.encode(query)
+                entry['embedding'] = emb.tolist()[0]
+            except Exception:
+                pass
         self.faq_cache[fp] = entry
 
         # 持久化缓存
@@ -1502,11 +1592,14 @@ def main():
         engine._load_knowledge_base()
         engine._load_report_data()
         engine._load_bm25_index()
+        engine._load_vector_index()
         engine.save_cache()
 
     # Ensure BM25 is loaded (not stored in JSON cache)
     if engine.bm25 is None:
         engine._load_bm25_index()
+    if engine.vector is None:
+        engine._load_vector_index()
 
     if not args.query:
         print(json.dumps({"error": "请提供查询内容"}, ensure_ascii=False))
