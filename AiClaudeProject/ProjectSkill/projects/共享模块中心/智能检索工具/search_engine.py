@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 from collections import defaultdict
 from datetime import date
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 import faiss
@@ -25,12 +26,13 @@ from vector_index import VectorIndex
 # ---------- paths ----------
 HERE = Path(__file__).resolve().parent
 SHARED_CENTER = HERE.parent  # 共享模块中心/
+KEYWORD_DIR = SHARED_CENTER / "关键词库"  # 数据文件所在
 PROJECT_DIR = SHARED_CENTER.parents[2]  # AiClaudeProject/
 KB_DIR = PROJECT_DIR / "2026产品业务知识库"
 REPORT_DIR = PROJECT_DIR / "2026报表数据知识库"
-SYNONYMS_FILE = HERE / "synonyms.json"
-CACHE_FILE = HERE / "index_cache.json"
-KEYWORD_INDEX_FILE = HERE / "关键词索引.md"
+SYNONYMS_FILE = KEYWORD_DIR / "synonyms.json"
+CACHE_FILE = KEYWORD_DIR / "index_cache.json"
+KEYWORD_INDEX_FILE = KEYWORD_DIR / "关键词索引.md"
 
 
 # ---------- engine ----------
@@ -43,7 +45,7 @@ class SearchEngine:
         self.report_docs = []  # [{path, title, content_sample}]
         self.synonyms = {}  # word -> [aliases]
         self.faq_cache = {}  # 回答缓存: {fingerprint: {query, answer, keywords, module, saved_at}}
-        self.faq_cache_file = HERE / "faq_cache.json"
+        self.faq_cache_file = KEYWORD_DIR / "faq_cache.json"
         self.bm25 = None
         self.bm25_cache_file = HERE / "bm25_index.pkl"
         self.vector = None
@@ -367,14 +369,11 @@ class SearchEngine:
 
     def _load_vector_index(self):
         """加载或构建向量索引"""
+        self.vector = VectorIndex()
         if self.vector_index_file.exists() and self.vector_meta_file.exists():
-            # 有预构建索引文件，直接加载（无需下载模型）
-            self.vector = VectorIndex.__new__(VectorIndex)
-            self.vector.model = None
+            # 加载预构建的 FAISS 索引和元数据（模型已在 VectorIndex() 中初始化）
             self.vector.load(str(self.vector_index_file), str(self.vector_meta_file))
             return
-
-        self.vector = VectorIndex()
 
         # 首次构建：对所有 KB 文档段落生成 embedding
         segments = []
@@ -422,12 +421,33 @@ class SearchEngine:
         # 2. 扩展查询词（同义词 + 拼音）
         expanded = self._expand_tokens(tokens)
 
-        # 3. 多源搜索
-        kw_results = self._search_keywords(query, expanded)
-        mod_results = self._search_modules(query, expanded)
-        kb_results = self._search_kb(query, expanded)
-        report_results = self._search_reports(query, expanded)
-        vec_results = self._search_vector(query, expanded)
+        # 3. 多源并行搜索
+        kw_results, mod_results, kb_results, report_results, vec_results = [], [], [], [], []
+
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = {
+                executor.submit(self._search_keywords, query, expanded): 'kw',
+                executor.submit(self._search_modules, query, expanded): 'mod',
+                executor.submit(self._search_kb, query, expanded): 'kb',
+                executor.submit(self._search_reports, query, expanded): 'report',
+                executor.submit(self._search_vector, query, expanded): 'vec',
+            }
+            for future in as_completed(futures):
+                key = futures[future]
+                try:
+                    result = future.result()
+                except Exception:
+                    result = []
+                if key == 'kw':
+                    kw_results = result
+                elif key == 'mod':
+                    mod_results = result
+                elif key == 'kb':
+                    kb_results = result
+                elif key == 'report':
+                    report_results = result
+                elif key == 'vec':
+                    vec_results = result
 
         results = []
         results.extend(kw_results)
@@ -942,6 +962,7 @@ class SearchEngine:
 
         S1: BM25 文档级筛选 → Top-10 文档
         S2: 段落级精细匹配 → Top-5 段落
+        多维评分：关键词 40% + 向量相似度 35% + 位置/标题 15% + 新鲜度 10%
         """
         sections = []
         search_terms = list(expanded) + [query]
@@ -954,7 +975,15 @@ class SearchEngine:
             # Fallback: 使用原有的 priority_dirs + kb_paths 逻辑
             doc_paths = self._collect_kb_paths_fallback(results, priority_dirs)
 
-        # S2: 段落级精细匹配
+        # 预计算 query 向量，用于 S2 段落级语义匹配
+        query_emb = None
+        if self.vector and self.vector.model and self.vector.index is not None:
+            try:
+                query_emb = self.vector.encode(query)
+            except Exception:
+                pass
+
+        # S2: 段落级精细匹配（多维评分）
         for path in doc_paths[:10]:
             full_path = PROJECT_DIR / path
             if not full_path.exists():
@@ -969,33 +998,49 @@ class SearchEngine:
                 if seg['heading'] == '(文档开头)':
                     continue
 
-                # 多维评分
+                # 1. 关键词匹配分数（40%）- 归一化到 [0, 1]
                 keyword_score = self._match_score(seg['content'], search_terms)
+                keyword_norm = min(keyword_score / 10.0, 1.0)
+
+                # 2. 向量语义相似度（35%）
+                vector_sim = 0.0
+                if query_emb is not None and len(seg['content']) >= 50:
+                    try:
+                        seg_emb = self.vector.encode(seg['content'][:512])
+                        faiss.normalize_L2(seg_emb)
+                        vector_sim = float(np.dot(query_emb, seg_emb.T)[0][0])
+                    except Exception:
+                        pass
+
+                # 3. 位置/标题匹配（15%）- 归一化到 [0, 1]
                 heading_score = self._match_score(seg['heading'], search_terms) * 3
                 parent_heading_score = self._match_score(
                     seg.get('parent_heading', ''), search_terms
                 ) * 1.5
-
-                # FAQ 区域加权
                 is_faq = any(kw in seg['heading'] for kw in ['FAQ', '常见问题', '故障', '排查'])
                 faq_bonus = 2.0 if is_faq else 0
+                position_score = min((heading_score + parent_heading_score + faq_bonus) / 10.0, 1.0)
 
-                # 文档新鲜度
+                # 4. 文档新鲜度（10%）
                 doc_date = self._extract_date_from_path(path)
                 freshness = 1.0
                 if doc_date:
                     days_ago = (date.today() - doc_date).days
-                    if days_ago > 365:
+                    if days_ago <= 90:
+                        freshness = 1.0
+                    elif days_ago <= 365:
+                        freshness = 0.8
+                    else:
                         freshness = max(0.5, 1.0 - (days_ago - 365) / 365)
 
                 total_score = (
-                    keyword_score * 0.4
-                    + heading_score * 0.25
-                    + parent_heading_score * 0.15
-                    + faq_bonus * 0.1
-                ) * freshness
+                    keyword_norm * 0.40
+                    + vector_sim * 0.35
+                    + position_score * 0.15
+                    + freshness * 0.10
+                )
 
-                if total_score >= 0.5:
+                if total_score >= 0.15:
                     images = re.findall(r'!\[([^\]]*)\]\(([^)]+)\)', seg['content'])
                     sections.append({
                         'path': path,
@@ -1003,7 +1048,7 @@ class SearchEngine:
                         'parent_heading': seg.get('parent_heading', ''),
                         'content': seg['content'][:1500],
                         'images': [{'alt': alt, 'src': src} for alt, src in images],
-                        'score': total_score,
+                        'score': round(total_score, 3),
                         'line_start': seg.get('line_start', 0),
                     })
 
@@ -1553,6 +1598,7 @@ class SearchEngine:
             "menu_map": {k: v for k, v in self.menu_map.items()},
             "kb_docs": self.kb_docs,
             "report_docs": self.report_docs,
+            "synonyms": self.synonyms,
         }
         with open(CACHE_FILE, "w", encoding="utf-8") as f:
             json.dump(cache, f, ensure_ascii=False, indent=2)
@@ -1572,6 +1618,7 @@ class SearchEngine:
         self.menu_map = defaultdict(list, cache.get("menu_map", {}))
         self.kb_docs = cache.get("kb_docs", [])
         self.report_docs = cache.get("report_docs", [])
+        self.synonyms = cache.get("synonyms", {})
         return True
 
 

@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 """向量检索引擎 - sentence-transformers + FAISS 语义检索"""
+import os
+# 优先使用本地缓存，避免 HuggingFace 网络超时（必须在 import SentenceTransformer 之前设置）
+os.environ.setdefault('HF_HUB_OFFLINE', '1')
+
 import pickle
 import numpy as np
 from sentence_transformers import SentenceTransformer
@@ -18,7 +22,15 @@ class VectorIndex:
     """
 
     def __init__(self, model_name='paraphrase-multilingual-MiniLM-L12-v2'):
-        self.model = SentenceTransformer(model_name)
+        try:
+            self.model = SentenceTransformer(model_name)
+        except Exception:
+            # 如果本地缓存不可用，尝试在线下载（取消离线限制）
+            os.environ['HF_HUB_OFFLINE'] = '0'
+            try:
+                self.model = SentenceTransformer(model_name)
+            except Exception:
+                self.model = None
         self.index = None       # FAISS IndexFlatIP
         self.sections = []      # [{path, heading, content}]
         self.dim = 384          # MiniLM 输出维度
@@ -55,6 +67,8 @@ class VectorIndex:
 
     def encode(self, text):
         """编码单条文本为归一化向量"""
+        if self.model is None:
+            return np.zeros((1, self.dim), dtype='float32')
         emb = self.model.encode(text[:512], convert_to_numpy=True)
         emb = emb.astype('float32').reshape(1, -1)
         faiss.normalize_L2(emb)
@@ -62,7 +76,7 @@ class VectorIndex:
 
     def search(self, query, k=10):
         """向量检索 Top-K 段落。返回 [{path, heading, content, score}, ...]"""
-        if self.index is None:
+        if self.index is None or self.model is None:
             return []
 
         query_emb = self.encode(query)
