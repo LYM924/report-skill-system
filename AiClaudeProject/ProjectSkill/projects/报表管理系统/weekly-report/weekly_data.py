@@ -344,6 +344,128 @@ def fetch_confluence_dashboard(target_week_str):
     }
 
 
+def fetch_confluence_metrics():
+    """从 Confluence 业务指标页面获取业务指标详情数据。
+    页面: https://cf.cai-inc.com/pages/viewpage.action?pageId=286888251
+    返回: {metrics: {业务: [{主指标, 子指标, 上周值, 本周值, 趋势, 变化率}]}, week_labels: [上周, 本周]}
+    """
+    if not CONFLUENCE_TOKEN:
+        return {"error": "请设置 CONFLUENCE_TOKEN 环境变量", "metrics": {}}
+
+    import subprocess
+    result = subprocess.run(
+        [
+            "curl", "-s", "-H", f"Authorization: Bearer {CONFLUENCE_TOKEN}",
+            "https://cf.cai-inc.com/rest/api/content/286888251?expand=body.storage"
+        ],
+        capture_output=True, text=True, timeout=30
+    )
+
+    if result.returncode != 0 or not result.stdout.strip():
+        return {"error": "Confluence 业务指标获取失败", "metrics": {}}
+
+    try:
+        data = json.loads(result.stdout)
+        html = data["body"]["storage"]["value"]
+    except Exception:
+        return {"error": "Confluence 业务指标响应解析失败", "metrics": {}}
+
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        return {"error": "需要 beautifulsoup4", "metrics": {}}
+
+    soup = BeautifulSoup(html, "html.parser")
+    table = soup.find("table")
+    if not table:
+        return {"error": "业务指标表格未找到", "metrics": {}}
+
+    rows = table.find_all("tr")
+
+    # 第一行是表头，提取周标签
+    header_cells = rows[0].find_all("td")
+    week_labels = []
+    for cell in header_cells:
+        text = cell.get_text(strip=True)
+        if text and re.match(r'2026W\d+', text):
+            week_labels.append(text)
+
+    # 解析数据行。rowspan 导致每行列数不同：
+    #   7列 = 新业务 + 新主指标 + 子指标 + 数据
+    #   6列 = 新主指标 + 子指标 + 数据（业务延续）
+    #   5列 = 子指标 + 数据（业务和主指标都延续）
+    metrics = {}
+    current_business = ""
+    current_main = ""
+
+    for row in rows[1:]:
+        cells = row.find_all("td")
+        if not cells:
+            continue
+
+        # 提取纯文本
+        cell_texts = [c.get_text(strip=True) for c in cells]
+
+        # 跳过表头重复行
+        if cell_texts[0] == "业务":
+            continue
+
+        n = len(cell_texts)
+
+        if n >= 7:
+            # 完整行：业务 + 主指标 + 子指标 + prev + curr + trend + change
+            current_business = cell_texts[0]
+            current_main = cell_texts[1]
+            sub_metric = cell_texts[2]
+            prev_val = cell_texts[3]
+            curr_val = cell_texts[4]
+            trend = cell_texts[5]
+            change = cell_texts[6] if n > 6 else ""
+        elif n == 6:
+            # 新主指标行：主指标 + 子指标 + prev + curr + trend + change
+            current_main = cell_texts[0]
+            sub_metric = cell_texts[1]
+            prev_val = cell_texts[2]
+            curr_val = cell_texts[3]
+            trend = cell_texts[4]
+            change = cell_texts[5] if n > 5 else ""
+        elif n == 5:
+            # 延续行：子指标 + prev + curr + trend + change
+            sub_metric = cell_texts[0]
+            prev_val = cell_texts[1]
+            curr_val = cell_texts[2]
+            trend = cell_texts[3]
+            change = cell_texts[4]
+        else:
+            continue
+
+        if not sub_metric or not current_business:
+            continue
+
+        # 规范化趋势符号
+        if trend in ("&mdash;", "—", "-"):
+            trend = "—"
+
+        if current_business not in metrics:
+            metrics[current_business] = []
+
+        metrics[current_business].append({
+            "main_metric": current_main,
+            "sub_metric": sub_metric,
+            "prev_value": prev_val,
+            "curr_value": curr_val,
+            "trend": trend,
+            "change": change,
+        })
+
+    return {
+        "metrics": metrics,
+        "week_labels": week_labels,
+        "page_title": data.get("title", ""),
+        "error": None,
+    }
+
+
 def fetch_latest_weekly_report():
     """从 Confluence 获取最新一期周报格式参考"""
     if not CONFLUENCE_TOKEN:
@@ -415,11 +537,12 @@ def gather_all_data(week_str=None):
     }
 
     # 并行获取数据
-    with ThreadPoolExecutor(max_workers=3) as executor:
+    with ThreadPoolExecutor(max_workers=4) as executor:
         futures = {
             executor.submit(fetch_excel_tickets, friday, thursday): "excel",
             executor.submit(fetch_confluence_demands): "demands",
             executor.submit(fetch_confluence_dashboard, week_str): "dashboard",
+            executor.submit(fetch_confluence_metrics): "metrics",
         }
         for future in as_completed(futures):
             key = futures[future]
@@ -524,9 +647,20 @@ def print_summary(data):
             print(f"  PM提交技术工单(数智): {db.get('pm_submit_finance', '—')}")
             print(f"  PM提交技术工单(免疫): {db.get('pm_submit_immune', '—')}")
 
+    # 业务指标
+    metrics = data.get("metrics", {})
+    if metrics and "error" not in metrics:
+        m = metrics.get("metrics", {})
+        labels = metrics.get("week_labels", [])
+        print(f"\n📈 业务指标详情 (来源: {metrics.get('page_title', 'Confluence')}):")
+        if labels:
+            print(f"  周标签: {labels[0] if len(labels) > 0 else '?'} → {labels[1] if len(labels) > 1 else '?'}")
+        for biz, items in m.items():
+            print(f"  {biz}: {len(items)} 项指标")
+
     # 错误
     errors = []
-    for key in ["excel", "demands", "dashboard"]:
+    for key in ["excel", "demands", "dashboard", "metrics"]:
         if isinstance(data.get(key), dict) and data[key].get("error"):
             errors.append(f"  {key}: {data[key]['error']}")
     if errors:

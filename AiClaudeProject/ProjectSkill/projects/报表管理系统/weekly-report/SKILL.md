@@ -30,12 +30,11 @@ data-fetching  data-audit      output
 
 **一步并行拉数据 → 直接输出报告，中间不需要确认。**
 
-1. 运行一键数据脚本：`python3 AiClaudeProject/ProjectSkill/projects/报表管理系统/weekly-report/weekly_data.py --json`
-   - 自动计算当前周次和日期范围
-   - 并行拉取 Excel 工单 + Confluence 需求 + Confluence 看板
-   - 输出结构化 JSON 数据
-2. 基于 JSON 数据 + 上周报告模板，直接生成本周报告
-3. 不需要探索 Agent、不需要分步确认
+1. 运行 `weekly_data.py --json` 获取结构化数据（自动计算周次和日期范围）
+2. 模板来源：`output/SKILL.md`（完整报告模板，含所有章节）
+3. 上周对比数据：读取 `2026报表数据知识库/周报/{上周}-技术支持周报.md` 提取业务指标
+4. **无上周报告时**：较上周列和变化率填"—"，简述中跳过对比描述
+5. 不需要探索 Agent、不需要分步确认
 
 ### 阶段一：数据获取
 
