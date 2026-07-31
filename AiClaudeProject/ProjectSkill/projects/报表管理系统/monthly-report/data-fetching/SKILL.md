@@ -313,7 +313,7 @@ for w in range(1, 6):
 7. **从 Confluence 获取需求列表**（**必须使用 curl + Bearer Token，禁止 WebFetch**），过滤出所有未完成需求（排除"已完成"状态）
 8. **从 Confluence 获取翡翠月报数据看板**（pageId: 278883515，**必须使用 curl + Bearer Token**），按统计月匹配目标行，提取非客满统计数据
 9. 从 Confluence 获取各业务组按周的用户量（UV）和咨询量数据
-10. 从 Confluence 获取故障数据（P1/P2、P3/P4、外部故障）
+10. 从 Confluence 获取故障数据（P1/P2、P3/P4、外部故障），来源：pageId: 257088525（2026年-故障&工单&安全数据 → 故障明细数据）
 11. 获取工作总结与下月计划信息（如 Confluence 有相关页面）
 
 > 获取完成后的数据审计和核实确认，参见 `tech-support-monthly-report-data-audit` skill。

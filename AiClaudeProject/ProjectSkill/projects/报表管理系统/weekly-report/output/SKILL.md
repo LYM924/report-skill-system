@@ -165,6 +165,7 @@ description: 生成技术支持周报的最终输出，包括简述、业务指�
 *   {{Completed_Demand_Name}}
 
 ### 8. 本周故障
+> 数据来源：Confluence 页面"2026年-故障&工单&安全数据"（pageId: 257088525），`weekly_data.py` 按本周日期范围自动筛选。禁止手动粘贴或从其他来源推算。
 | 故障名称 | 故障链接 | 原因 | 解决方案 | 影响数量 |
 |---|---|---|---|---|
 | {{Bug_Name}} | {{Bug_URL}} | {{Bug_Reason}} | {{Bug_Solution}} | {{Bug_Impact_Count}} |
@@ -213,6 +214,7 @@ description: 生成技术支持周报的最终输出，包括简述、业务指�
 *   {{Resolved_Issue_Desc}}
 
 ### 7. 疫苗故障事件统计
+> 数据来源：Confluence 页面"2026年-故障&工单&安全数据"（pageId: 257088525），`weekly_data.py` 按本周日期范围自动筛选"疫苗"业务组。
 | 故障名称 | 故障链接 | 原因 | 解决方案 | 影响数量 |
 |---|---|---|---|---|
 | {{Bug_Name}} | {{Bug_URL}} | {{Bug_Reason}} | {{Bug_Solution}} | {{Bug_Impact_Count}} |
