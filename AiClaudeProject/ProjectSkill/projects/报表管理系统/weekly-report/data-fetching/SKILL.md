@@ -22,8 +22,9 @@ python3 AiClaudeProject/ProjectSkill/projects/报表管理系统/weekly-report/w
 
 脚本自动完成：
 - 计算当前周次和日期范围（周五→周四）
-- 并行读取 Excel 工单 + Confluence 需求 + Confluence 看板数据
-- 输出结构化 JSON，包含工单统计、超期工单（含ONCALL）、需求列表等
+- 并行读取 5 路数据：Excel 工单 + Confluence 需求 + Confluence 看板 + Confluence 业务指标 + Confluence 故障明细
+- 按本周日期范围筛选故障数据
+- 输出结构化 JSON
 
 指定周次：
 ```bash

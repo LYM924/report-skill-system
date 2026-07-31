@@ -466,6 +466,160 @@ def fetch_confluence_metrics():
     }
 
 
+def fetch_confluence_faults(week_start, week_end):
+    """从 Confluence 故障明细页面获取本周故障数据。
+    页面: https://cf.cai-inc.com/pages/viewpage.action?pageId=257088525
+    根据故障日期筛选落在 week_start ~ week_end 范围内的故障。
+    返回: {faults: {业务组: [{等级, 日期, 故障名称, 故障链接, 故障原因, 故障分类, 复盘链接}]}}
+    """
+    if not CONFLUENCE_TOKEN:
+        return {"error": "请设置 CONFLUENCE_TOKEN 环境变量", "faults": {}}
+
+    import subprocess
+    result = subprocess.run(
+        [
+            "curl", "-s", "-H", f"Authorization: Bearer {CONFLUENCE_TOKEN}",
+            "https://cf.cai-inc.com/rest/api/content/257088525?expand=body.storage"
+        ],
+        capture_output=True, text=True, timeout=30
+    )
+
+    if result.returncode != 0 or not result.stdout.strip():
+        return {"error": "Confluence 故障数据获取失败", "faults": {}}
+
+    try:
+        data = json.loads(result.stdout)
+        html = data["body"]["storage"]["value"]
+    except Exception:
+        return {"error": "Confluence 故障数据响应解析失败", "faults": {}}
+
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        return {"error": "需要 beautifulsoup4", "faults": {}}
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    # 找到"故障明细数据"标题后的第一个表格
+    fault_h3 = soup.find('h3', string=lambda t: t and '故障明细数据' in t)
+    if not fault_h3:
+        return {"error": "故障明细数据表格未找到", "faults": {}}
+
+    table = fault_h3.find_next('table')
+    if not table:
+        return {"error": "故障明细表格未找到", "faults": {}}
+
+    # 业务组名称映射
+    GROUP_MAP = {
+        "浙里报": "数智财务",
+        "疫苗": "免疫规划",
+        "数字化": "数字化支撑",
+        "电子档案": "电子档案",
+    }
+
+    rows = table.find_all("tr")
+    current_group = ""
+    all_faults = []
+
+    for row in rows:
+        cells = row.find_all("td")
+        if not cells:
+            continue
+
+        # 检查是否是业务组标题行（colspan=7 的整行）
+        if len(cells) == 1 and cells[0].get("colspan") == "7":
+            group_name = cells[0].get_text(strip=True)
+            current_group = GROUP_MAP.get(group_name, group_name)
+            continue
+
+        # 数据行
+        cell_texts = [c.get_text(strip=True) for c in cells]
+        if len(cell_texts) < 7:
+            continue
+        if cell_texts[0] == "等级":
+            continue
+
+        level = cell_texts[0]
+        date_str = cell_texts[1]
+        name = cell_texts[2] if len(cell_texts) > 2 else ""
+        link = cell_texts[3] if len(cell_texts) > 3 else ""
+        cause = cell_texts[4] if len(cell_texts) > 4 else ""
+        category = cell_texts[5] if len(cell_texts) > 5 else ""
+        review = cell_texts[6] if len(cell_texts) > 6 else ""
+
+        if not level and not name:
+            continue
+
+        # 解析日期：支持多种格式
+        parsed_date = _parse_fault_date(date_str, name)
+        if not parsed_date:
+            continue
+
+        all_faults.append({
+            "level": level,
+            "date": parsed_date.strftime("%Y-%m-%d"),
+            "date_str": date_str,
+            "name": name,
+            "link": link,
+            "cause": cause,
+            "category": category,
+            "review": review,
+            "group": current_group,
+        })
+
+    # 按日期范围筛选本周故障
+    week_faults = {}
+    for f in all_faults:
+        try:
+            fault_date = datetime.strptime(f["date"], "%Y-%m-%d").date()
+        except Exception:
+            continue
+        if week_start <= fault_date <= week_end:
+            group = f["group"]
+            if group not in week_faults:
+                week_faults[group] = []
+            week_faults[group].append(f)
+
+    return {
+        "faults": week_faults,
+        "all_faults_count": len(all_faults),
+        "week_faults_count": sum(len(v) for v in week_faults.values()),
+        "error": None,
+    }
+
+
+def _parse_fault_date(date_str, name):
+    """从故障日期列或故障名称中解析日期。
+    支持格式: 2026-07-09, 01月16日, 7月9日, 07月17日
+    """
+    # 格式1: YYYY-MM-DD（如 2026-07-09）
+    m = re.match(r"(\d{4})-(\d{2})-(\d{2})", date_str)
+    if m:
+        try:
+            return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        except ValueError:
+            pass
+
+    # 格式2: MM月DD日（如 01月16日, 07月17日）
+    m = re.match(r"(\d{1,2})月(\d{1,2})日", date_str)
+    if m:
+        try:
+            return date(2026, int(m.group(1)), int(m.group(2)))
+        except ValueError:
+            pass
+
+    # 如果日期列为空，尝试从故障名称中提取
+    if not date_str:
+        m = re.match(r"(\d{1,2})月(\d{1,2})日", name)
+        if m:
+            try:
+                return date(2026, int(m.group(1)), int(m.group(2)))
+            except ValueError:
+                pass
+
+    return None
+
+
 def fetch_latest_weekly_report():
     """从 Confluence 获取最新一期周报格式参考"""
     if not CONFLUENCE_TOKEN:
@@ -537,12 +691,13 @@ def gather_all_data(week_str=None):
     }
 
     # 并行获取数据
-    with ThreadPoolExecutor(max_workers=4) as executor:
+    with ThreadPoolExecutor(max_workers=5) as executor:
         futures = {
             executor.submit(fetch_excel_tickets, friday, thursday): "excel",
             executor.submit(fetch_confluence_demands): "demands",
             executor.submit(fetch_confluence_dashboard, week_str): "dashboard",
             executor.submit(fetch_confluence_metrics): "metrics",
+            executor.submit(fetch_confluence_faults, friday, thursday): "faults",
         }
         for future in as_completed(futures):
             key = futures[future]
@@ -658,9 +813,21 @@ def print_summary(data):
         for biz, items in m.items():
             print(f"  {biz}: {len(items)} 项指标")
 
+    # 故障数据
+    faults = data.get("faults", {})
+    if faults and "error" not in faults:
+        f = faults.get("faults", {})
+        print(f"\n⚠️ 本周故障 (来源: Confluence 故障明细):")
+        if not f:
+            print("  无")
+        for group, items in f.items():
+            print(f"  {group}: {len(items)} 条")
+            for item in items:
+                print(f"    [{item['level']}] {item['date']} | {item['name'][:60]}")
+
     # 错误
     errors = []
-    for key in ["excel", "demands", "dashboard", "metrics"]:
+    for key in ["excel", "demands", "dashboard", "metrics", "faults"]:
         if isinstance(data.get(key), dict) and data[key].get("error"):
             errors.append(f"  {key}: {data[key]['error']}")
     if errors:
