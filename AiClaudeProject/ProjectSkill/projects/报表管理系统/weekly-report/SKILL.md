@@ -5,6 +5,13 @@ description: Use when generating weekly technical support reports (技术支持�
 
 # 技术支持周报生成
 
+## 执行前置
+
+- **【跳过 brainstorming】**：本 skill 为报表数据组装任务，非创意设计，无需触发 brainstorming skill。收到周报生成请求后直接进入数据获取阶段。
+- **【禁止探索 Agent】**：所有模板和 SKILL 文件路径已知，禁止发送探索 Agent 查找文件。直接按路径读取。
+- **【禁止分步验证】**：数据获取应并行执行（curl + python3 同时发），不需要分步确认。一步拉数据 → 直接输出报告。
+- **Confluence Token**：环境变量 `$CONFLUENCE_TOKEN` 已配置，直接使用 `curl -s -H "Authorization: Bearer ${CONFLUENCE_TOKEN}"` 调用 Confluence REST API。不要搜索 token 文件或尝试浏览器登录。
+
 ## Overview
 
 基于本地工单明细数据（`原始报表文档/技术支持工单明细.xlsx`）和 Confluence 上现有周报模板，生成标准化的技术支持周报。工单问题分析、TOP问题分析、高频问题分析等均从技术支持工单明细.xlsx 的工单摘要字段提取数据。
@@ -19,11 +26,23 @@ description: Use when generating weekly technical support reports (技术支持�
 data-fetching  data-audit      output
 ```
 
+### 优化执行流程（推荐）
+
+**一步并行拉数据 → 直接输出报告，中间不需要确认。**
+
+1. 运行一键数据脚本：`python3 AiClaudeProject/ProjectSkill/projects/报表管理系统/weekly-report/weekly_data.py --json`
+   - 自动计算当前周次和日期范围
+   - 并行拉取 Excel 工单 + Confluence 需求 + Confluence 看板
+   - 输出结构化 JSON 数据
+2. 基于 JSON 数据 + 上周报告模板，直接生成本周报告
+3. 不需要探索 Agent、不需要分步确认
+
 ### 阶段一：数据获取
 
 使用 `tech-support-weekly-report-data-fetching` skill 获取全部原始数据：
 
-- 从 Confluence API（curl + Bearer Token）拉取最新周报参考和需求列表
+- **推荐方式**：运行 `weekly_data.py --json` 一键获取所有数据
+- **备选方式**：从 Confluence API（curl + Bearer Token）拉取最新周报参考和需求列表
 - 从本地 Excel（`AiClaudeProject/原始报表文档/技术支持工单明细.xlsx`）读取工单明细和超期工单
 - 按报告周期筛选本周数据
 

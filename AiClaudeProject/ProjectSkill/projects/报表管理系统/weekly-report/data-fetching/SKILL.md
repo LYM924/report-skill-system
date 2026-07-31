@@ -12,12 +12,31 @@ description: 获取技术支持周报所需的全部原始数据，包括从 Con
 1. **Confluence API**（内网认证站点，必须用 curl + Bearer Token）
 2. **本地 Excel 文件**（`AiClaudeProject/原始报表文档/技术支持工单明细.xlsx`）
 
+## 一键数据获取（推荐）
+
+**推荐使用 `weekly_data.py` 脚本一键获取所有数据，无需手动执行多个命令：**
+
+```bash
+python3 AiClaudeProject/ProjectSkill/projects/报表管理系统/weekly-report/weekly_data.py --json
+```
+
+脚本自动完成：
+- 计算当前周次和日期范围（周五→周四）
+- 并行读取 Excel 工单 + Confluence 需求 + Confluence 看板数据
+- 输出结构化 JSON，包含工单统计、超期工单（含ONCALL）、需求列表等
+
+指定周次：
+```bash
+python3 weekly_data.py --week W30 --json
+```
+
 ## 一、Confluence 数据源
 
 > **【强制规则】cf.cai-inc.com 为内网认证站点，必须使用 Bash + curl + Bearer Token 获取数据。禁止使用 WebFetch。**
+> **Token 获取**：`${CONFLUENCE_TOKEN}` 环境变量已配置，一行命令即可，无需搜索文件或尝试浏览器登录。
 
 - **实例**: `https://cf.cai-inc.com`
-- **认证**: Bearer Token（已配置）
+- **认证**: Bearer Token（`${CONFLUENCE_TOKEN}`）
 - **空间**: FCSY
 
 ### 1.1 获取最新周报列表
@@ -351,14 +370,102 @@ overdue[group].append({
 
 > **注意**：如果备注列无数据（空或仅空白），三个字段均填充为"——"，与原来行为一致。
 
-## 三、数据获取流程
+### 2.6 可复用：一键解析脚本
 
-1. 确认报告周期（本周起止日期）
-2. 从 `AiClaudeProject/原始报表文档/技术支持工单明细.xlsx` 读取全部工单数据
-3. 按报告周期筛选本周工单
-4. 从 Excel 提取超期工单（筛选"是否超时"="是"的行）
-5. 从 Confluence 获取最新一期周报作为参考模板（可选，**必须使用 curl + Bearer Token**）
-6. **从 Confluence 获取需求列表**（**必须使用 curl + Bearer Token，禁止 WebFetch**），过滤出所有未完成需求（排除"已完成"状态）
-7. **从 Confluence 获取翡翠周报数据看板**（pageId: 278883515，**必须使用 curl + Bearer Token**），按统计周匹配目标行，提取自助转技术支持工单、运营提交技术工单、PM提交技术工单量
+以下脚本可直接通过管道执行，无需写入临时文件：
+
+**解析需求页面**（提取所有未完成需求，按产品模块归类）：
+
+```bash
+curl -s -H "Authorization: Bearer ${CONFLUENCE_TOKEN}" \
+  "https://cf.cai-inc.com/rest/api/content/258705731?expand=body.storage" \
+  | python3 -c "
+import json, sys, re
+from bs4 import BeautifulSoup
+data = json.load(sys.stdin)
+html = data['body']['storage']['value']
+soup = BeautifulSoup(html, 'html.parser')
+table = soup.find('table')
+rows = table.find_all('tr')[1:]
+for row in rows:
+    cells = row.find_all('td')
+    if len(cells) < 4: continue
+    module = cells[0].get_text(strip=True)
+    name = cells[1].get_text(strip=True)
+    link_el = cells[2].find('a')
+    link = link_el['href'] if link_el else ''
+    status = cells[3].get_text(strip=True)
+    if not module or not name: continue
+    if '已完成' in status: continue
+    print(f'{module} | {name[:60]} | {link} | {status}')
+"
+```
+
+**解析 W29 工单数据**（按周期筛选，输出统计摘要和全部工单）：
+
+```bash
+python3 -c "
+from openpyxl import load_workbook
+from collections import Counter
+from datetime import datetime
+import json
+
+wb = load_workbook('/Users/zcy1/Desktop/ClaudeProject/AiClaudeProject/原始报表文档/技术支持工单明细.xlsx', data_only=True)
+ws = wb.active
+
+# 修改此处切换报告周期
+week_start = datetime(2026, 7, 17)  # 周五
+week_end = datetime(2026, 7, 23)    # 周四
+
+tickets = []
+overdue = []
+for row in ws.iter_rows(min_row=2, values_only=True):
+    if not row[0] or not row[7]: continue
+    t = row[7]  # 提交时间
+    if isinstance(t, datetime):
+        d = t
+    else:
+        try:
+            d = datetime.strptime(str(t)[:10], '%Y-%m-%d')
+        except: continue
+    if not (week_start <= d <= week_end): continue
+    ticket = {
+        'id': str(row[0]), 'dept2': str(row[2] or ''), 'module': str(row[4] or ''),
+        'category': str(row[5] or ''), 'time': str(t),
+        'is_overdue': str(row[10] or ''), 'overdue_reason': str(row[11] or ''),
+        'desc': str(row[13] or '')[:150], 'remark': str(row[15] or ''),
+    }
+    tickets.append(ticket)
+    if ticket['is_overdue'] == '是':
+        overdue.append(ticket)
+
+dept_counts = Counter(t['dept2'] for t in tickets)
+module_counts = Counter(t['module'] for t in tickets)
+print(f'Total: {len(tickets)}, Overdue: {len(overdue)}')
+print(f'By dept: {dict(dept_counts)}')
+print(f'By module: {dict(module_counts)}')
+print(f'\\n=== Overdue ===')
+for t in overdue:
+    print(f\"  [{t['dept2']}] {t['id']} | {t['module']} | {t['overdue_reason']} | {t['time']}\")
+print(f'\\n=== All Tickets ===')
+for t in tickets:
+    print(f\"  [{t['dept2']}] {t['id']} | {t['module']} | {t['category']} | overdue:{t['is_overdue']} | {t['desc']}\")
+"
+```
+
+> 以上脚本可直接在 Bash 中执行，无需写入临时 .py 文件。修改 `week_start`/`week_end` 变量即可切换报告周期。
+
+## 三、数据获取流程（优化后）
+
+执行顺序：**并行拉取所有数据源，一步到位**：
+
+```
+1. 确认报告周期（本周五 → 下周四）
+2. 并行执行（3 个独立数据源）：
+   ├── curl Confluence 需求列表 (pageId: 258705731) → 管道解析未完成需求
+   ├── curl Confluence 数据看板 (pageId: 278883515) → 匹配 W29 行
+   └── python3 解析 Excel 工单明细 → 筛选本周数据 + 超期工单
+3. 参考最新周报格式（可选，curl Confluence pageId: 252657891）
+```
 
 > 获取完成后的数据审计和核实确认，参见 `tech-support-weekly-report-data-audit` skill。
