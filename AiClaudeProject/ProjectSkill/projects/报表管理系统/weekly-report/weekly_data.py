@@ -709,6 +709,199 @@ def gather_all_data(week_str=None):
     return result
 
 
+# ============================================================
+# 5. 数据审计
+# ============================================================
+
+def run_audit(data):
+    """对获取的数据进行自动审计，逐项检查并返回结果。
+    返回: {passed: bool, checks: [{name, passed, detail, severity}]}
+    """
+    checks = []
+
+    # ---- 1. 业务指标数据完整性 ----
+    metrics = data.get("metrics", {}).get("metrics", {})
+    expected_biz = ["数智财务", "免疫规划", "数字化支撑", "电子档案"]
+    for biz in expected_biz:
+        if biz not in metrics:
+            checks.append({
+                "name": f"业务指标-{biz}",
+                "passed": False,
+                "detail": f"缺少 {biz} 的业务指标数据",
+                "severity": "error",
+            })
+        elif len(metrics[biz]) == 0:
+            checks.append({
+                "name": f"业务指标-{biz}",
+                "passed": False,
+                "detail": f"{biz} 的业务指标为空",
+                "severity": "error",
+            })
+        else:
+            checks.append({
+                "name": f"业务指标-{biz}",
+                "passed": True,
+                "detail": f"{biz}: {len(metrics[biz])} 项指标",
+                "severity": "info",
+            })
+
+    # ---- 2. 两小时完结率四舍五入检查 ----
+    rate_metrics = [
+        ("数智财务", "技术支持两小时工单完成率（内部）"),
+        ("数智财务", "技术支持两小时工单完成率（含外部）"),
+        ("免疫规划", "技术支持两小时工单完成率"),
+        ("数字化支撑", "技术支持两小时工单完成率"),
+        ("电子档案", "技术支持两小时工单完成率（内部）"),
+        ("电子档案", "技术支持两小时工单完成率（含外部）"),
+    ]
+    for biz, sub in rate_metrics:
+        items = metrics.get(biz, [])
+        for item in items:
+            if item["sub_metric"] == sub:
+                val = item["curr_value"]
+                try:
+                    # 去掉%号，转为浮点数
+                    num = float(val.replace("%", ""))
+                    rounded = round(num)
+                    if num != rounded and num != int(num):
+                        checks.append({
+                            "name": f"完结率取整-{biz}-{sub}",
+                            "passed": False,
+                            "detail": f"{val} 需四舍五入取整为 {rounded}%（当前含小数）",
+                            "severity": "warning",
+                        })
+                    else:
+                        checks.append({
+                            "name": f"完结率取整-{biz}-{sub}",
+                            "passed": True,
+                            "detail": f"{val} → {rounded}% {'达标' if rounded >= 95 else '不达标'}",
+                            "severity": "info",
+                        })
+                except ValueError:
+                    pass
+                break
+
+    # ---- 3. 故障数据与业务指标一致性 ----
+    faults = data.get("faults", {}).get("faults", {})
+    # 统计本周各业务组 P1/P2 和 P3/P4 故障数
+    fault_p1p2 = {}
+    fault_p3p4 = {}
+    for group, items in faults.items():
+        p1p2 = sum(1 for f in items if f["level"] in ("P1", "P2"))
+        p3p4 = sum(1 for f in items if f["level"] in ("P3", "P4"))
+        fault_p1p2[group] = p1p2
+        fault_p3p4[group] = p3p4
+
+    # 映射到业务指标中的业务名
+    biz_fault_map = {
+        "数智财务": "数智财务",
+        "免疫规划": "免疫规划",
+    }
+    for biz, metric_biz in biz_fault_map.items():
+        if biz in fault_p1p2:
+            checks.append({
+                "name": f"故障一致性-{biz}-P1P2",
+                "passed": True,
+                "detail": f"本周新增 P1/P2: {fault_p1p2[biz]} 个",
+                "severity": "info",
+            })
+        if biz in fault_p3p4:
+            checks.append({
+                "name": f"故障一致性-{biz}-P3P4",
+                "passed": True,
+                "detail": f"本周新增 P3/P4: {fault_p3p4[biz]} 个",
+                "severity": "info",
+            })
+
+    # ---- 4. 超期工单排除规则检查 ----
+    excel = data.get("excel", {})
+    overdue_grouped = excel.get("overdue_grouped", {})
+    excluded = excel.get("excluded_overdue", {})
+    if "附录1" in overdue_grouped:
+        appendix1_items = overdue_grouped["附录1"].get("items", [])
+        has_external = any("外部超时" in item.get("overdue_reason", "") for item in appendix1_items)
+        if has_external:
+            checks.append({
+                "name": "超期工单-附录1排除外部超时",
+                "passed": False,
+                "detail": "附录1 超期工单中仍包含'外部超时'条目，排除规则未生效",
+                "severity": "error",
+            })
+        else:
+            checks.append({
+                "name": "超期工单-附录1排除外部超时",
+                "passed": True,
+                "detail": f"附录1 超期 {len(appendix1_items)} 条，已排除外部超时",
+                "severity": "info",
+            })
+    if excluded:
+        total_excluded = sum(v.get("count", 0) for v in excluded.values())
+        checks.append({
+            "name": "超期工单-排除统计",
+            "passed": True,
+            "detail": f"共排除外部超时 {total_excluded} 条",
+            "severity": "info",
+        })
+
+    # ---- 5. 需求状态过滤检查 ----
+    demands = data.get("demands", {}).get("demands", {})
+    for cat, items in demands.items():
+        has_completed = any("已完成" in item.get("status", "") for item in items)
+        if has_completed:
+            checks.append({
+                "name": f"需求过滤-{cat}",
+                "passed": False,
+                "detail": f"{cat} 需求列表中包含'已完成'状态的需求，过滤规则未生效",
+                "severity": "error",
+            })
+        else:
+            checks.append({
+                "name": f"需求过滤-{cat}",
+                "passed": True,
+                "detail": f"{cat}: {len(items)} 条未完成需求",
+                "severity": "info",
+            })
+
+    # ---- 6. 趋势标注一致性检查 ----
+    for biz, items in metrics.items():
+        for item in items:
+            prev = item["prev_value"]
+            curr = item["curr_value"]
+            trend = item["trend"]
+            try:
+                p = float(prev.replace("%", ""))
+                c = float(curr.replace("%", ""))
+                if c > p and trend != "▲":
+                    checks.append({
+                        "name": f"趋势检查-{biz}-{item['sub_metric']}",
+                        "passed": False,
+                        "detail": f"{prev}→{curr} 应为 ▲，实际为 {trend}",
+                        "severity": "warning",
+                    })
+                elif c < p and trend != "▼":
+                    checks.append({
+                        "name": f"趋势检查-{biz}-{item['sub_metric']}",
+                        "passed": False,
+                        "detail": f"{prev}→{curr} 应为 ▼，实际为 {trend}",
+                        "severity": "warning",
+                    })
+            except ValueError:
+                pass
+
+    # ---- 汇总 ----
+    errors = [c for c in checks if c["severity"] == "error" and not c["passed"]]
+    warnings = [c for c in checks if c["severity"] == "warning" and not c["passed"]]
+    passed = len(errors) == 0
+
+    return {
+        "passed": passed,
+        "total_checks": len(checks),
+        "errors": len(errors),
+        "warnings": len(warnings),
+        "checks": checks,
+    }
+
+
 def _week_num_to_dates(week_num):
     """根据 W 周次计算周五-周四的日期范围"""
     today = date.today()
@@ -742,9 +935,16 @@ def main():
                         help="输出原始 JSON 数据")
     parser.add_argument("--summary", action="store_true",
                         help="仅输出摘要信息")
+    parser.add_argument("--audit", action="store_true",
+                        help="获取数据后运行审计检查")
     args = parser.parse_args()
 
     data = gather_all_data(args.week)
+
+    if args.audit:
+        audit_result = run_audit(data)
+        print(json.dumps(audit_result, ensure_ascii=False, indent=2, default=str))
+        return
 
     if args.json:
         print(json.dumps(data, ensure_ascii=False, indent=2, default=str))
