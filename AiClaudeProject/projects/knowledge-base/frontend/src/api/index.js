@@ -1,0 +1,170 @@
+/**
+ * API 接口层 - 对接 Python 搜索服务后端
+ *
+ * 所有接口调用 http://localhost:8765/api/...（通过 Vite 代理或直接访问）
+ */
+
+const API_BASE = '/api';
+
+/**
+ * 通用请求函数
+ */
+async function apiFetch(path, params = {}) {
+  const query = new URLSearchParams(params).toString();
+  const url = `${API_BASE}${path}${query ? '?' + query : ''}`;
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return await resp.json();
+  } catch (e) {
+    console.error(`API Error [${path}]:`, e);
+    return null;
+  }
+}
+
+/**
+ * 智能搜索
+ * @param {string} query - 搜索关键词
+ * @param {string} scope - 搜索范围: all | doc | faq | ticket | dept
+ * @returns {Promise<{results, answer, faqs, tickets}>}
+ */
+export async function searchKnowledge(query, scope = 'all') {
+  const data = await apiFetch('/search', { q: query, top: 10 });
+  if (!data) return { results: [], answer: null, faqs: [], tickets: [] };
+
+  return {
+    results: data.results || [],
+    answer: data.answer || null,
+    tokens: data.tokens || [],
+    expanded_terms: data.expanded_terms || [],
+    total: data.total || 0,
+    process: data.process || null,
+    claude_stream_url: data.claude_stream_url || null,  // 新增
+  };
+}
+
+/**
+ * 获取知识总览仪表盘数据
+ */
+export async function getDashboardStats() {
+  const data = await apiFetch('/dashboard');
+  if (data) return data;
+  // fallback mock
+  return {
+    totalDocs: 3256, faqCount: 842, weekQuestions: 618,
+    weekNew: 966, weekNewGrowth: 12.5, aiMatchConfidence: 92,
+  };
+}
+
+/**
+ * 获取文档列表
+ * @param {string} module - 可选，按产品模块筛选
+ */
+export async function getDocuments(module = '') {
+  const params = {};
+  if (module) params.module = module;
+  const data = await apiFetch('/documents', params);
+  if (data) return data.documents || [];
+  return [];
+}
+
+/**
+ * 获取 FAQ 列表
+ */
+export async function getFAQs() {
+  const data = await apiFetch('/faq');
+  if (data) return data.faqs || [];
+  return [];
+}
+
+/**
+ * 获取 FAQ 详情
+ * @param {string} faqId
+ */
+export async function getFAQDetail(faqId) {
+  return await apiFetch('/faq', { id: faqId });
+}
+
+/**
+ * 获取文档详情
+ * @param {string} path - 文档路径
+ */
+export async function getDocumentDetail(path) {
+  return await apiFetch('/document', { path });
+}
+
+/**
+ * 获取系统统计
+ */
+export async function getStats() {
+  return await apiFetch('/stats');
+}
+
+/**
+ * 重建索引
+ */
+export async function rebuildIndex() {
+  return await apiFetch('/rebuild');
+}
+
+/**
+ * SSE 流式调用 Claude 总结
+ * @param {string} url - SSE endpoint，如 /api/claude-stream?sid=xxx
+ * @param {object} callbacks - { onToken, onComplete, onError }
+ * @returns {function} abort - 调用以取消请求
+ */
+export function streamClaudeSummary(url, callbacks = {}) {
+  const { onToken, onComplete, onError } = callbacks;
+  const controller = new AbortController();
+
+  fetch(url, { signal: controller.signal })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data === '[DONE]') {
+              if (onComplete) onComplete();
+              return;
+            }
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.error) {
+                if (onError) onError(new Error(parsed.error));
+                return;
+              }
+              if (parsed.text && onToken) {
+                onToken(parsed.text);
+              }
+              if (parsed.type === 'complete' && onComplete) {
+                onComplete(parsed);
+              }
+            } catch (e) {
+              // 跳过解析失败的行
+            }
+          }
+        }
+      }
+    })
+    .catch((err) => {
+      if (err.name !== 'AbortError' && onError) {
+        onError(err);
+      }
+    });
+
+  return () => controller.abort();
+}
