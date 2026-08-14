@@ -19,6 +19,10 @@ const { Header, Sider, Content } = Layout;
 function App() {
   const [selectedNav, setSelectedNav] = useState('dept');
 
+  // 搜索状态（提升到 App 层，供 CenterContent 和 RightPanel 联动）
+  const [searchResults, setSearchResults] = useState(null);
+  const [selectedDoc, setSelectedDoc] = useState(null); // 右侧面板选中的文档
+
   return (
     <ConfigProvider
       locale={zhCN}
@@ -51,12 +55,19 @@ function App() {
 
           {/* ===== 中间主面板 ===== */}
           <Content style={{ background: '#f8fafc', overflow: 'auto', padding: '16px 20px' }}>
-            <CenterContent />
+            <CenterContent
+              searchResults={searchResults}
+              onSearchResultsChange={setSearchResults}
+              onSelectDoc={setSelectedDoc}
+            />
           </Content>
 
           {/* ===== 右侧信息看板 ===== */}
           <Sider width={320} style={{ background: '#fff', borderLeft: '1px solid #e2e8f0', overflow: 'hidden' }}>
-            <RightPanel />
+            <RightPanel
+              selectedDoc={selectedDoc}
+              onClearDoc={() => setSelectedDoc(null)}
+            />
           </Sider>
         </Layout>
       </Layout>
