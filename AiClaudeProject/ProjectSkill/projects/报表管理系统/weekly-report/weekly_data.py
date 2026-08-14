@@ -77,20 +77,92 @@ def get_prev_week(week_start):
 
 # 路径常量
 HERE = Path(__file__).resolve().parent
-PROJECT_DIR = HERE.parents[3]  # AiClaudeProject/
-EXCEL_PATH = PROJECT_DIR / "原始报表文档" / "技术支持工单明细.xlsx"
-CONFLUENCE_TOKEN = os.environ.get("CONFLUENCE_TOKEN", "")
+REPORT_SYSTEM_DIR = HERE.parent  # report-system/
+DATA_DIR = REPORT_SYSTEM_DIR / "data"  # 标准数据目录
+OUTPUT_DIR = REPORT_SYSTEM_DIR / "output"  # 标准输出目录
+PROJECT_DIR = HERE.parents[3]  # AiClaudeProject/（兼容旧版路径）
+
+# Excel 文件路径：按优先级查找
+# 1. 命令行 --excel 参数
+# 2. 环境变量 WEEKLY_REPORT_EXCEL_PATH
+# 3. ./data/技术支持工单明细.xlsx（标准数据目录，推荐）
+# 4. 旧版路径 原始报表文档/技术支持工单明细.xlsx（兼容旧版）
+def _resolve_excel_path(excel_arg=None):
+    """按优先级解析 Excel 文件路径"""
+    if excel_arg:
+        p = Path(excel_arg)
+        if p.exists():
+            return p
+        else:
+            print(f"⚠️ 指定的 Excel 文件不存在: {excel_arg}")
+
+    env_path = os.environ.get("WEEKLY_REPORT_EXCEL_PATH", "")
+    if env_path:
+        p = Path(env_path)
+        if p.exists():
+            return p
+
+    data_path = DATA_DIR / "技术支持工单明细.xlsx"
+    if data_path.exists():
+        return data_path
+
+    legacy_path = PROJECT_DIR / "原始报表文档" / "技术支持工单明细.xlsx"
+    if legacy_path.exists():
+        return legacy_path
+
+    # 都不存在时返回标准路径（用于报错提示）
+    return data_path
+
+# 默认 EXCEL_PATH（可在运行时通过 _resolve_excel_path 覆盖）
+EXCEL_PATH = _resolve_excel_path()
+
+# Confluence Token：按优先级读取
+# 1. 命令行 --token 参数
+# 2. 环境变量 CONFLUENCE_TOKEN
+# 3. .env 文件中的 CONFLUENCE_TOKEN
+def _resolve_confluence_token(token_arg=None):
+    """按优先级解析 Confluence Token"""
+    if token_arg:
+        return token_arg
+
+    env_token = os.environ.get("CONFLUENCE_TOKEN", "")
+    if env_token:
+        return env_token
+
+    # 尝试从 .env 文件读取
+    env_file = REPORT_SYSTEM_DIR / ".env"
+    if env_file.exists():
+        try:
+            with open(env_file, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("CONFLUENCE_TOKEN="):
+                        return line.split("=", 1)[1].strip().strip('"').strip("'")
+        except Exception:
+            pass
+
+    return ""
+
+# 初始化时解析（不传参数，走环境变量或 .env）
+CONFLUENCE_TOKEN = _resolve_confluence_token()
+
+TOKEN_HELP = ("请配置 Confluence Token（三选一）：\n"
+              "  1. 命令行: --token YOUR_TOKEN\n"
+              "  2. 环境变量: export CONFLUENCE_TOKEN=YOUR_TOKEN\n"
+              "  3. .env 文件: 在 report-system/.env 中写入 CONFLUENCE_TOKEN=YOUR_TOKEN")
 
 
-def fetch_excel_tickets(week_start, week_end):
+def fetch_excel_tickets(week_start, week_end, excel_path=None):
     """从 Excel 读取本周工单明细和超期工单"""
+    if excel_path is None:
+        excel_path = EXCEL_PATH
     try:
         from openpyxl import load_workbook
     except ImportError:
         return {"error": "请安装 openpyxl: pip install openpyxl"}
 
-    if not EXCEL_PATH.exists():
-        return {"error": f"Excel 文件不存在: {EXCEL_PATH}"}
+    if not excel_path.exists():
+        return {"error": f"Excel 文件不存在: {excel_path}\n请将 技术支持工单明细.xlsx 放入 {DATA_DIR}/ 目录，或通过 --excel 参数指定路径"}
 
     wb = load_workbook(str(EXCEL_PATH), data_only=True)
     ws = wb.active
@@ -226,7 +298,7 @@ def parse_oncall_from_remark(remark):
 def fetch_confluence_demands():
     """从 Confluence 获取需求列表"""
     if not CONFLUENCE_TOKEN:
-        return {"error": "请设置 CONFLUENCE_TOKEN 环境变量", "demands": {}}
+        return {"error": TOKEN_HELP, "demands": {}}
 
     import subprocess
     result = subprocess.run(
@@ -290,7 +362,7 @@ def fetch_confluence_demands():
 def fetch_confluence_dashboard(target_week_str):
     """从 Confluence 翡翠周报数据看板获取非客满统计数据"""
     if not CONFLUENCE_TOKEN:
-        return {"error": "请设置 CONFLUENCE_TOKEN 环境变量", "data": None}
+        return {"error": TOKEN_HELP, "data": None}
 
     import subprocess
     result = subprocess.run(
@@ -350,7 +422,7 @@ def fetch_confluence_metrics():
     返回: {metrics: {业务: [{主指标, 子指标, 上周值, 本周值, 趋势, 变化率}]}, week_labels: [上周, 本周]}
     """
     if not CONFLUENCE_TOKEN:
-        return {"error": "请设置 CONFLUENCE_TOKEN 环境变量", "metrics": {}}
+        return {"error": TOKEN_HELP, "metrics": {}}
 
     import subprocess
     result = subprocess.run(
@@ -473,7 +545,7 @@ def fetch_confluence_faults(week_start, week_end):
     返回: {faults: {业务组: [{等级, 日期, 故障名称, 故障链接, 故障原因, 故障分类, 复盘链接}]}}
     """
     if not CONFLUENCE_TOKEN:
-        return {"error": "请设置 CONFLUENCE_TOKEN 环境变量", "faults": {}}
+        return {"error": TOKEN_HELP, "faults": {}}
 
     import subprocess
     result = subprocess.run(
@@ -623,7 +695,7 @@ def _parse_fault_date(date_str, name):
 def fetch_latest_weekly_report():
     """从 Confluence 获取最新一期周报格式参考"""
     if not CONFLUENCE_TOKEN:
-        return {"error": "请设置 CONFLUENCE_TOKEN 环境变量", "reports": []}
+        return {"error": TOKEN_HELP, "reports": []}
 
     import subprocess
     result = subprocess.run(
@@ -656,7 +728,7 @@ def fetch_latest_weekly_report():
 # 3. 主入口
 # ============================================================
 
-def gather_all_data(week_str=None):
+def gather_all_data(week_str=None, excel_path=None):
     """并行获取所有数据源，返回结构化结果"""
     # 计算周日期
     if week_str:
@@ -693,7 +765,7 @@ def gather_all_data(week_str=None):
     # 并行获取数据
     with ThreadPoolExecutor(max_workers=5) as executor:
         futures = {
-            executor.submit(fetch_excel_tickets, friday, thursday): "excel",
+            executor.submit(fetch_excel_tickets, friday, thursday, excel_path): "excel",
             executor.submit(fetch_confluence_demands): "demands",
             executor.submit(fetch_confluence_dashboard, week_str): "dashboard",
             executor.submit(fetch_confluence_metrics): "metrics",
@@ -922,6 +994,457 @@ def _week_num_to_dates(week_num):
 
 
 # ============================================================
+# 6. Markdown → Confluence Storage Format 转换
+# ============================================================
+
+def md_to_confluence_storage(md_text):
+    """将 Markdown 文本转换为 Confluence Storage Format (XHTML)。
+
+    支持的 Markdown 元素：
+    - 标题 H1-H6
+    - 段落、换行
+    - 粗体、斜体、行内代码
+    - 无序列表（- 和 *）
+    - 表格（| col | col |）
+    - 水平分割线（---）
+    - 链接 [text](url)
+    - 引用块（>）
+    - 图片 ![alt](url)
+    """
+    import re
+
+    lines = md_text.split("\n")
+    output = []
+    i = 0
+    n = len(lines)
+
+    # 状态跟踪
+    in_table = False
+    ul_stack = []  # 嵌套列表的缩进层级栈
+    li_open = []  # 跟踪每个层级是否有未闭合的 <li>
+    in_blockquote = False
+    table_rows = []
+    blockquote_lines = []
+
+    def flush_table():
+        """输出缓存的表格行"""
+        nonlocal in_table
+        if not table_rows:
+            return
+        rows_html = []
+        is_first = True
+        for row in table_rows:
+            cells = row.split("|")
+            # 去掉首尾空单元格（由 | 包裹导致）
+            if cells and cells[0].strip() == "":
+                cells = cells[1:]
+            if cells and cells[-1].strip() == "":
+                cells = cells[:-1]
+            tag = "th" if is_first else "td"
+            cell_html = "".join(
+                f"<{tag}>{_inline_md_to_html(c.strip())}</{tag}>"
+                for c in cells
+            )
+            rows_html.append(f"<tr>{cell_html}</tr>")
+            is_first = False
+        output.append(f'<table><tbody>{"".join(rows_html)}</tbody></table>')
+        table_rows.clear()
+        in_table = False
+
+    def close_li(level):
+        """关闭指定层级未闭合的 <li>"""
+        if level < len(li_open) and li_open[level]:
+            output.append("</li>")
+            li_open[level] = False
+
+    def close_li_up_to(level):
+        """关闭从当前深度到指定层级的所有未闭合 <li>"""
+        for lv in range(len(li_open) - 1, level - 1, -1):
+            if lv < len(li_open) and li_open[lv]:
+                output.append("</li>")
+                li_open[lv] = False
+
+    def flush_ul():
+        """关闭所有未闭合的列表层级（先关 li 再关 ul）"""
+        while ul_stack:
+            level = len(ul_stack) - 1
+            close_li(level)
+            output.append("</ul>")
+            ul_stack.pop()
+            if li_open:
+                li_open.pop()
+
+    def ensure_ul_level(indent, is_first_level=False):
+        """根据缩进层级确保正确的 ul 嵌套。
+        indent: 缩进空格数（0=顶层, 2=二层, 4=三层...）
+        is_first_level: 是否是顶层列表（用于添加 style 属性）
+        """
+        # 目标深度：0缩进=1层ul, 2缩进=2层ul, 4缩进=3层ul...
+        target_depth = indent // 2 + 1
+
+        # 上升层级（缩进变浅）：关闭深层的 li 和 ul
+        while len(ul_stack) > target_depth:
+            level = len(ul_stack) - 1
+            close_li(level)
+            output.append("</ul>")
+            ul_stack.pop()
+            if li_open:
+                li_open.pop()
+
+        # 下降层级（缩进变深）：打开新的 ul（在父 li 内部）
+        while len(ul_stack) < target_depth:
+            if len(ul_stack) == 0 and is_first_level:
+                output.append('<ul style="text-decoration: none;">')
+            else:
+                output.append("<ul>")
+            ul_stack.append(len(ul_stack))
+            li_open.append(False)  # 新层级还没有 li
+
+    def flush_blockquote():
+        nonlocal in_blockquote
+        if blockquote_lines:
+            content = " ".join(blockquote_lines)
+            content = _inline_md_to_html(content)
+            output.append(f"<blockquote><p>{content}</p></blockquote>")
+            blockquote_lines.clear()
+        in_blockquote = False
+
+    while i < n:
+        line = lines[i]
+        stripped = line.strip()
+
+        # 表格行
+        if stripped.startswith("|") and (stripped.endswith("|") or "|" in stripped[1:]):
+            # 检查是否是分隔行（如 |---|---|）
+            if re.match(r'^\|[\s\-:|]+\|$', stripped):
+                i += 1
+                continue
+            if not in_table:
+                flush_ul()
+                flush_blockquote()
+                in_table = True
+            table_rows.append(stripped)
+            i += 1
+            continue
+        elif in_table:
+            flush_table()
+
+        # 水平分割线
+        if re.match(r'^[-*_]{3,}\s*$', stripped):
+            flush_ul()
+            flush_blockquote()
+            output.append("<hr />")
+            i += 1
+            continue
+
+        # 标题
+        heading_match = re.match(r'^(#{1,6})\s+(.+)$', stripped)
+        if heading_match:
+            flush_ul()
+            flush_blockquote()
+            level = len(heading_match.group(1))
+            text = _inline_md_to_html(heading_match.group(2))
+            output.append(f"<h{level}>{text}</h{level}>")
+            i += 1
+            continue
+
+        # 空行（必须在列表检查之前处理，避免列表内的空行触发 flush_ul）
+        if stripped == "":
+            if in_blockquote:
+                flush_blockquote()
+            if in_table:
+                flush_table()
+            # 在列表内部，不因空行而中断列表（允许嵌套列表中有空行分隔）
+            if ul_stack:
+                i += 1
+                continue
+            i += 1
+            continue
+
+        # 无序列表（支持缩进嵌套）
+        # 注意：使用原始行 line（而非 stripped）来检测缩进层级
+        ul_match = re.match(r'^(\s*)[-*]\s+(.+)$', line)
+        if ul_match:
+            flush_blockquote()
+            if in_table:
+                flush_table()
+            indent = len(ul_match.group(1))
+            # 判断是否是顶层列表（在标题或空行之后的第一个列表）
+            is_first_level = (len(ul_stack) == 0)
+            ensure_ul_level(indent, is_first_level)
+            level = len(ul_stack) - 1  # 当前层级
+            # 在输出新 li 之前，关闭同层级上一个 li
+            close_li(level)
+            text = _inline_md_to_html(ul_match.group(2))
+            # 缩进 ≤ 2 的段落级列表项用 <p> 包裹，深层叶子项（问题描述/处理方式/原因）不用
+            if indent <= 2:
+                output.append(f"<li><p>{text}</p>")
+            else:
+                output.append(f"<li>{text}")
+            li_open[level] = True
+            i += 1
+            continue
+        elif ul_stack:
+            flush_ul()
+
+        # 引用块
+        bq_match = re.match(r'^>\s*(.*)$', stripped)
+        if bq_match:
+            if ul_stack:
+                flush_ul()
+            if in_table:
+                flush_table()
+            if not in_blockquote:
+                in_blockquote = True
+            blockquote_lines.append(bq_match.group(1))
+            i += 1
+            continue
+        elif in_blockquote:
+            flush_blockquote()
+
+        # 普通段落
+        if ul_stack:
+            flush_ul()
+        if in_blockquote:
+            flush_blockquote()
+        if in_table:
+            flush_table()
+
+        text = _inline_md_to_html(stripped)
+        output.append(f"<p>{text}</p>")
+        i += 1
+
+    # 清理未闭合的块
+    if in_table:
+        flush_table()
+    if ul_stack:
+        flush_ul()
+    if in_blockquote:
+        flush_blockquote()
+
+    return "".join(output)
+
+
+def _inline_md_to_html(text):
+    """转换行内 Markdown 元素为 HTML"""
+    import re
+
+    # 先用占位符保护已有的 HTML 特殊字符
+    # 先转义 &（必须在最前面），然后转义 < 和 >
+    text = text.replace("&", "&amp;")
+    text = text.replace("<", "&lt;")
+    text = text.replace(">", "&gt;")
+
+    # 在转义后的文本上做 Markdown → HTML 转换
+    # 使用占位符技巧避免转义冲突
+
+    # 粗体+斜体
+    text = re.sub(r'&amp;lt;strong&amp;gt;&amp;lt;em&amp;gt;(.+?)&amp;lt;/em&amp;gt;&amp;lt;/strong&amp;gt;',
+                  r'<strong><em>\1</em></strong>', text)
+    # 粗体 ***text*** → 但先检查是否已经有 ** 的情况
+    # 注意：由于 & 已经被转义，** 在源文本中就是字面的 **
+    text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
+    # 斜体
+    text = re.sub(r'\*(.+?)\*', r'<em>\1</em>', text)
+    # 行内代码
+    text = re.sub(r'`([^`]+)`', r'<code>\1</code>', text)
+    # 链接 [text](url)
+    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2">\1</a>', text)
+    # 图片 ![alt](url)
+    text = re.sub(r'!\[([^\]]*)\]\(([^)]+)\)',
+                  r'<ac:image><ri:url ri:value="\2" /></ac:image>', text)
+
+    return text
+
+
+# ============================================================
+# 7. Confluence 发布
+# ============================================================
+
+# Confluence 发布配置
+CONFLUENCE_BASE_URL = "https://cf.cai-inc.com"
+CONFLUENCE_PARENT_PAGE_ID = "252657891"  # 26年技术支持周报
+CONFLUENCE_SPACE_KEY = "FCSY"
+
+
+def publish_weekly_report(week_str=None):
+    """将本地生成的周报 Markdown 文件发布到 Confluence。
+
+    流程：
+    1. 确定周次和对应的本地文件路径
+    2. 读取本地 Markdown 文件
+    3. 转换为 Confluence Storage Format
+    4. 检查 Confluence 上是否已有同名页面
+    5. 有则更新（覆盖），无则创建新页面
+    """
+    # 计算周次
+    if week_str:
+        try:
+            week_num = int(week_str.replace("W", "").replace("w", ""))
+        except ValueError:
+            print(f"❌ 无效的周次格式: {week_str}，请使用 W30 格式")
+            return
+    else:
+        week_str, friday, thursday, _, _ = get_week_from_date()
+        week_num = int(week_str.replace("W", ""))
+
+    friday, thursday = _week_num_to_dates(week_num)
+    week_str = f"W{week_num}"
+
+    # 本地文件路径（优先新路径，兼容旧路径）
+    report_path_new = REPORT_SYSTEM_DIR / "output" / "周报" / f"2026-{week_str}-技术支持周报.md"
+    report_path_old = PROJECT_DIR / "2026报表数据知识库" / "周报" / f"2026-{week_str}-技术支持周报.md"
+    if report_path_new.exists():
+        report_path = report_path_new
+    elif report_path_old.exists():
+        report_path = report_path_old
+        print(f"📄 读取本地周报（旧路径）: {report_path}")
+    else:
+        report_path = report_path_new  # 默认新路径（用于报错提示）
+    if not report_path.exists():
+        print(f"❌ 本地周报文件不存在: {report_path}")
+        print(f"   请先生成周报文件后再发布。")
+        return
+
+    print(f"📄 读取本地周报: {report_path}")
+    with open(report_path, "r", encoding="utf-8") as f:
+        md_content = f.read()
+
+    # 转换 Markdown → Confluence Storage Format
+    print("🔄 转换 Markdown → Confluence Storage Format...")
+    confluence_body = md_to_confluence_storage(md_content)
+
+    # 页面标题：格式为 YYYYMMDD翡翠技术支持周报（日期为本周四，即周报截止日期）
+    page_title = f"{thursday.strftime('%Y%m%d')}翡翠技术支持周报"
+    date_range = f"{friday.strftime('%m/%d')} - {thursday.strftime('%m/%d')}"
+
+    if not CONFLUENCE_TOKEN:
+        print(f"❌ {TOKEN_HELP}")
+        return
+
+    import subprocess
+
+    # 1. 查找是否已有同名页面
+    print(f"🔍 检查 Confluence 上是否已有页面: {page_title}")
+    result = subprocess.run(
+        [
+            "curl", "-s", "-H", f"Authorization: Bearer {CONFLUENCE_TOKEN}",
+            f"{CONFLUENCE_BASE_URL}/rest/api/content/{CONFLUENCE_PARENT_PAGE_ID}/child/page?limit=50&expand=version"
+        ],
+        capture_output=True, text=True, timeout=30
+    )
+
+    existing_page_id = None
+    existing_version = 1
+    if result.returncode == 0 and result.stdout.strip():
+        try:
+            data = json.loads(result.stdout)
+            for r in data.get("results", []):
+                if r.get("title") == page_title:
+                    existing_page_id = r["id"]
+                    existing_version = r.get("version", {}).get("number", 1)
+                    print(f"   找到已有页面: {existing_page_id} (版本 {existing_version})")
+                    break
+        except Exception:
+            pass
+
+    # 如果子页面列表没找到（可能被分页截断），通过标题搜索
+    if not existing_page_id:
+        search_result = subprocess.run(
+            [
+                "curl", "-s", "-H", f"Authorization: Bearer {CONFLUENCE_TOKEN}",
+                f"{CONFLUENCE_BASE_URL}/rest/api/content?title={page_title}&spaceKey={CONFLUENCE_SPACE_KEY}&expand=version"
+            ],
+            capture_output=True, text=True, timeout=30
+        )
+        if search_result.returncode == 0 and search_result.stdout.strip():
+            try:
+                search_data = json.loads(search_result.stdout)
+                for r in search_data.get("results", []):
+                    if r.get("title") == page_title:
+                        existing_page_id = r["id"]
+                        existing_version = r.get("version", {}).get("number", 1)
+                        print(f"   通过搜索找到已有页面: {existing_page_id} (版本 {existing_version})")
+                        break
+            except Exception:
+                pass
+
+    # 2. 创建或更新页面
+    if existing_page_id:
+        print(f"🔄 更新已有页面 (版本 {existing_version} → {existing_version + 1})...")
+        payload = {
+            "id": existing_page_id,
+            "type": "page",
+            "title": page_title,
+            "space": {"key": CONFLUENCE_SPACE_KEY},
+            "ancestors": [{"id": int(CONFLUENCE_PARENT_PAGE_ID)}],
+            "body": {
+                "storage": {
+                    "value": confluence_body,
+                    "representation": "storage",
+                }
+            },
+            "version": {"number": existing_version + 1},
+        }
+        result = subprocess.run(
+            [
+                "curl", "-s", "-X", "PUT",
+                "-H", f"Authorization: Bearer {CONFLUENCE_TOKEN}",
+                "-H", "Content-Type: application/json",
+                f"{CONFLUENCE_BASE_URL}/rest/api/content/{existing_page_id}",
+                "-d", json.dumps(payload, ensure_ascii=False),
+            ],
+            capture_output=True, text=True, timeout=30
+        )
+    else:
+        print(f"✨ 创建新页面...")
+        payload = {
+            "type": "page",
+            "title": page_title,
+            "space": {"key": CONFLUENCE_SPACE_KEY},
+            "ancestors": [{"id": int(CONFLUENCE_PARENT_PAGE_ID)}],
+            "body": {
+                "storage": {
+                    "value": confluence_body,
+                    "representation": "storage",
+                }
+            },
+        }
+        result = subprocess.run(
+            [
+                "curl", "-s", "-X", "POST",
+                "-H", f"Authorization: Bearer {CONFLUENCE_TOKEN}",
+                "-H", "Content-Type: application/json",
+                f"{CONFLUENCE_BASE_URL}/rest/api/content",
+                "-d", json.dumps(payload, ensure_ascii=False),
+            ],
+            capture_output=True, text=True, timeout=30
+        )
+
+    # 3. 检查结果
+    if result.returncode != 0:
+        print(f"❌ 请求失败: {result.stderr}")
+        return
+
+    try:
+        resp = json.loads(result.stdout)
+        if "id" in resp:
+            page_id = resp["id"]
+            page_url = f"{CONFLUENCE_BASE_URL}/pages/viewpage.action?pageId={page_id}"
+            status = resp.get("version", {}).get("number", "?")
+            action = "更新" if existing_page_id else "创建"
+            print(f"✅ {action}成功！")
+            print(f"   Confluence 页面: {page_url}")
+            print(f"   版本: {status}")
+            print(f"   本地备份: {report_path}")
+        else:
+            print(f"❌ 失败:")
+            print(json.dumps(resp, ensure_ascii=False, indent=2))
+    except Exception:
+        print(f"❌ 响应解析失败: {result.stdout[:500]}")
+
+
+# ============================================================
 # 4. CLI
 # ============================================================
 
@@ -931,15 +1454,35 @@ def main():
     )
     parser.add_argument("--week", type=str, default=None,
                         help="指定周次，如 W30。不指定则自动检测当前周")
+    parser.add_argument("--excel", type=str, default=None,
+                        help="指定技术支持工单明细.xlsx 文件路径。不指定则按优先级自动查找: 环境变量 → ./data/ → 原始路径")
+    parser.add_argument("--token", type=str, default=None,
+                        help="Confluence API Token。不指定则从环境变量 CONFLUENCE_TOKEN 或 .env 文件读取")
     parser.add_argument("--json", action="store_true",
                         help="输出原始 JSON 数据")
     parser.add_argument("--summary", action="store_true",
                         help="仅输出摘要信息")
     parser.add_argument("--audit", action="store_true",
                         help="获取数据后运行审计检查")
+    parser.add_argument("--publish", action="store_true",
+                        help="将生成的周报发布到 Confluence（26年技术支持周报 子页面）")
     args = parser.parse_args()
 
-    data = gather_all_data(args.week)
+    # 解析 Token（命令行参数优先）
+    global CONFLUENCE_TOKEN
+    if args.token:
+        CONFLUENCE_TOKEN = args.token
+    elif not CONFLUENCE_TOKEN:
+        CONFLUENCE_TOKEN = _resolve_confluence_token()
+
+    # 解析 Excel 路径
+    excel_path = _resolve_excel_path(args.excel)
+
+    if args.publish:
+        publish_weekly_report(args.week)
+        return
+
+    data = gather_all_data(args.week, excel_path)
 
     if args.audit:
         audit_result = run_audit(data)

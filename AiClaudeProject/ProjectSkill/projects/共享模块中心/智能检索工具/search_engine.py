@@ -23,13 +23,41 @@ from pypinyin import lazy_pinyin, Style
 from bm25_index import BM25Index
 from vector_index import VectorIndex
 
+# ---------- jieba 自定义词典：确保业务术语不被错误切分 ----------
+_JIEBA_CUSTOM_TERMS = [
+    # 报销/申请相关
+    ("报销单", 100), ("差旅报销单", 100), ("申请单", 100),
+    ("创建报销单", 80), ("我的单据", 80), ("报销申请", 80),
+    ("差旅报销", 100), ("差旅申请单", 100), ("费用报销单", 100),
+    # 通用业务术语
+    ("用款计划", 80), ("支付申请", 80), ("预算指标", 80),
+    ("公务卡", 80), ("兑付报销", 80), ("批量报销", 80),
+    ("指标同步", 80), ("发票后补", 80), ("财务审核", 80),
+    ("出纳结算", 80), ("国库支付", 80), ("进项税额", 80),
+    ("票据信息", 80), ("行程组件", 80), ("人脸采集", 80),
+    ("单位管理", 80), ("人员管理", 80), ("运营后台", 80),
+    ("财务管理", 80), ("数据监管", 80), ("工作台", 80),
+    ("电子档案", 80), ("免疫规划", 80), ("数字化支撑", 80),
+    ("浙里报", 100), ("徽报账", 100), ("数里通", 80),
+]
+for _term, _freq in _JIEBA_CUSTOM_TERMS:
+    jieba.add_word(_term, freq=_freq, tag='n')
+
 # ---------- paths ----------
 HERE = Path(__file__).resolve().parent
-SHARED_CENTER = HERE.parent  # 共享模块中心/
+SHARED_CENTER = HERE.parent  # shared-modules/
 KEYWORD_DIR = SHARED_CENTER / "关键词库"  # 数据文件所在
-PROJECT_DIR = SHARED_CENTER.parents[2]  # AiClaudeProject/
-KB_DIR = PROJECT_DIR / "2026产品业务知识库"
-REPORT_DIR = PROJECT_DIR / "2026报表数据知识库"
+PROJECT_DIR = HERE.parents[3]  # AiClaudeProject/
+
+# 知识库目录（优先新路径，兼容旧路径）
+_KB_NEW = HERE.parents[1] / "knowledge"  # projects/knowledge-base/knowledge/
+_KB_OLD = PROJECT_DIR / "2026产品业务知识库"
+KB_DIR = _KB_NEW if _KB_NEW.exists() else _KB_OLD
+
+# 报表目录（优先新路径，兼容旧路径）
+_REPORT_NEW = PROJECT_DIR / "projects" / "report-system" / "output"
+_REPORT_OLD = PROJECT_DIR / "2026报表数据知识库"
+REPORT_DIR = _REPORT_NEW if _REPORT_NEW.exists() else _REPORT_OLD
 SYNONYMS_FILE = KEYWORD_DIR / "synonyms.json"
 CACHE_FILE = KEYWORD_DIR / "index_cache.json"
 KEYWORD_INDEX_FILE = KEYWORD_DIR / "关键词索引.md"
@@ -504,7 +532,7 @@ class SearchEngine:
         }
 
     def _expand_tokens(self, tokens):
-        """扩展查询词：加入同义词、拼音、bigram组合"""
+        """扩展查询词：加入同义词、拼音、bigram组合、子词拆分"""
         expanded = set(tokens)
 
         # bigram 组合（如 "预算"+"申报" → "预算申报"）
@@ -515,8 +543,22 @@ class SearchEngine:
         if len(full) <= 10:
             expanded.add(full)
 
+        # 子词拆分：对复合词（如"差旅报销单"），用 lcut_for_search 获取子词
+        for token in list(tokens):
+            if len(token) >= 3:
+                sub_tokens = jieba.lcut_for_search(token)
+                sub_tokens = [t.strip() for t in sub_tokens if len(t.strip()) >= 1]
+                # 如果子词拆分结果与原 token 不同，说明是复合词，加入子词
+                if len(sub_tokens) > 1:
+                    for st in sub_tokens:
+                        if len(st) >= 1:
+                            expanded.add(st)
+                    # 也加入子词 bigram
+                    for i in range(len(sub_tokens) - 1):
+                        expanded.add(sub_tokens[i] + sub_tokens[i + 1])
+
         # 同义词扩展
-        for token in tokens:
+        for token in list(expanded):  # 遍历扩展后的全部词（包含子词）
             if token in self.synonyms:
                 for alias in self.synonyms[token]:
                     expanded.add(alias)
@@ -925,7 +967,7 @@ class SearchEngine:
 
             user_parts.append("## 知识库文档（完整内容）")
             for i, doc in enumerate(full_docs, 1):
-                rel_path = doc['path'].replace('2026产品业务知识库/', '')
+                rel_path = doc['path'].replace('2026产品业务知识库/', '').replace('projects/knowledge-base/knowledge/', '')
                 user_parts.append(f"### 文档{i}: {rel_path}")
                 user_parts.append(doc['content'])
                 user_parts.append("")
@@ -1040,6 +1082,14 @@ class SearchEngine:
                     + freshness * 0.10
                 )
 
+                # 5. 主题不匹配惩罚：段落标题/内容与查询指向不同业务场景时降权
+                # 例如查询"差旅报销单"但标题是"采购报销单关联附件优化"→ 惩罚
+                is_mismatch, topic_penalty = self._check_topic_mismatch(
+                    query, seg['heading'], seg['content']
+                )
+                if is_mismatch:
+                    total_score *= (1.0 - topic_penalty)  # 默认 0.5 惩罚，即分数减半
+
                 if total_score >= 0.15:
                     images = re.findall(r'!\[([^\]]*)\]\(([^)]+)\)', seg['content'])
                     sections.append({
@@ -1101,7 +1151,10 @@ class SearchEngine:
         """搜索原始产品文档。
         排序策略：优先按文件名中的日期排序（最新日期在前），确保最新文档被优先搜索。
         """
-        raw_dir = PROJECT_DIR / "原始产品文档"
+        # 优先新路径，兼容旧路径
+        raw_dir_new = HERE.parents[1] / "raw-docs"  # knowledge-base/raw-docs/
+        raw_dir_old = PROJECT_DIR / "原始产品文档"
+        raw_dir = raw_dir_new if raw_dir_new.exists() else raw_dir_old
         if not raw_dir.exists():
             return []
 
@@ -1238,6 +1291,26 @@ class SearchEngine:
         "执行", "发布", "版本", "更新", "优化", "修复", "新增功能",
     }
 
+    # 业务场景关键词：用于判断查询和段落标题是否指向同一业务主题
+    # 当查询和标题各自包含不同的场景关键词时，说明段落内容与查询不相关
+    BUSINESS_SCENARIO_KEYWORDS = {
+        # 报销单类型
+        "差旅报销单", "差旅报销", "差旅申请单", "差旅", "出差",
+        "采购报销单", "采购", "通用采购", "办公用品",
+        "会议报销单", "会议", "接待",
+        "出国报销单", "出国", "因公出国",
+        "公务用车", "用车", "维修", "租赁",
+        # 通用业务场景
+        "报销单", "申请单", "报销", "培训", "劳务",
+        "咨询", "印刷", "物业", "借款", "还款", "预付款", "保证金",
+        "合同", "兑付", "兑付报销", "一般事项", "专项支出", "工程", "资产",
+        "收入", "预算", "指标", "用款计划", "支付申请",
+        # 配置/管理类
+        "关账", "限制报销", "发票后补", "票据信息", "凭证",
+        # 操作类
+        "创建报销单", "批量报销", "财务审核", "出纳结算",
+    }
+
     def _match_score(self, text, terms):
         """计算文本与搜索词的匹配分数，高频通用词降权"""
         score = 0
@@ -1250,6 +1323,89 @@ class SearchEngine:
                 weight = 0.5 if term in self.COMMON_TERMS else 1.0
                 score += min(count, 3) * weight
         return score
+
+    def _extract_topic_keywords(self, text):
+        """从文本中提取业务场景关键词，用于判断段落主题是否与查询相关。
+
+        返回 set of str，如 {"差旅", "报销单"} 或 {"采购", "报销单"}。
+        当查询和段落标题各自包含不同的场景关键词时，说明段落讲的是另一个主题。
+        """
+        tokens = set(jieba.cut(text))
+        tokens = {t.strip() for t in tokens if len(t.strip()) >= 2}
+        return tokens & self.BUSINESS_SCENARIO_KEYWORDS
+
+    def _check_topic_mismatch(self, query, heading, content=""):
+        """检查段落标题/内容与查询是否指向不同业务主题。
+
+        返回 (is_mismatch: bool, penalty: float)
+
+        策略：
+        1. 标题是段落主题的最强信号。如果标题明确指向另一个业务场景，
+           即使正文中提及查询关键词（作为背景/对比），也应判定为不匹配。
+        2. 当查询和标题各自包含不同的场景关键词时，即使有共同词（如"报销单"），
+           也应判定为不匹配（如"差旅报销单" vs "采购报销单"）。
+        3. 只有当标题中无场景关键词时，才回退检查内容。
+        """
+        query_topics = self._extract_topic_keywords(query)
+
+        if not query_topics:
+            return False, 0.0  # 查询中无业务场景关键词，不做主题判断
+
+        heading_topics = self._extract_topic_keywords(heading)
+
+        if heading_topics:
+            # 标题中有场景关键词 → 以标题为准
+            common = query_topics & heading_topics
+            query_specific = query_topics - heading_topics
+            heading_specific = heading_topics - query_topics
+
+            if common:
+                # 有共同词，但需要检查是否有冲突的场景词
+                # 例如：查询"差旅报销单" vs 标题"采购报销单" → 共同词"报销单"
+                # 但"差旅"≠"采购"，应判定为不匹配
+                if query_specific and heading_specific:
+                    # 双方各有不同的场景词 → 不匹配
+                    return True, 0.5
+                # 查询有额外场景词，但标题中的场景词都是查询的子集 → 可能匹配
+                # 检查查询特定词是否直接出现在标题中
+                for qt in query_specific:
+                    if qt in heading:
+                        continue  # 查询词出现在标题中，可能匹配
+                # 所有查询特定词都不在标题中，检查是否都在内容中
+                if query_specific and not heading_specific:
+                    return False, 0.0  # 标题场景词是查询的子集，可能匹配
+                return False, 0.0
+
+            # 无共同词，检查是否查询主题词作为子串出现在标题中
+            for qt in query_topics:
+                if qt in heading:
+                    return False, 0.0
+            # 标题明确指向不同主题 → 强不匹配
+            return True, 0.5
+
+        # 标题中无场景关键词 → 回退检查内容
+        if not content:
+            return False, 0.0
+
+        content_topics = self._extract_topic_keywords(content[:500])
+
+        if not content_topics:
+            # 内容和标题都无场景关键词，检查查询主题词是否直接出现
+            for qt in query_topics:
+                if qt in heading or qt in content[:500]:
+                    return False, 0.0
+            return False, 0.0
+
+        # 内容有场景关键词，检查是否与查询一致
+        if query_topics & content_topics:
+            return False, 0.0  # 内容与查询主题一致
+
+        # 查询主题词是否直接出现在内容中
+        for qt in query_topics:
+            if qt in content[:500]:
+                return False, 0.0
+
+        return True, 0.5
 
     def _domain_to_kb_dir(self, dept, domain):
         """将部门+业务域映射到知识库目录"""
@@ -1294,7 +1450,9 @@ class SearchEngine:
         return ""
 
     def _select_best_module(self, matched_modules, results, kb_dept):
-        """选择最佳模块：优先 keyword_index 匹配，其次 KB 部门匹配"""
+        """选择最佳模块：优先 keyword_index 匹配，其次 KB 部门匹配。
+        改进：当有多个 keyword_index 匹配时，优先选择与查询主题最相关的模块。
+        """
         if not matched_modules:
             return "", {}
 
@@ -1303,7 +1461,40 @@ class SearchEngine:
         for r in results:
             if r.get("source") == "keyword_index":
                 kw_modules.append(r.get("module"))
+
         if kw_modules:
+            # 收集查询中的业务场景关键词，用于判断哪个模块更相关
+            query_topics = self._extract_topic_keywords(
+                " ".join(r.get("match_term", "") for r in results)
+            )
+
+            # 对 keyword_index 匹配的模块打分
+            best_mod = None
+            best_score = -1
+            for mod in matched_modules:
+                if mod["name"] not in kw_modules:
+                    continue
+                score = 0
+                # 模块名匹配查询主题词
+                mod_text = mod["name"] + mod.get("domain", "") + mod.get("dept", "")
+                for qt in query_topics:
+                    if qt in mod_text:
+                        score += 3
+                # 模块的 domain/dept 与 KB 推断的部门一致
+                if kb_dept and mod.get("dept") == kb_dept:
+                    score += 2
+                # 模块名精确出现在查询词中
+                for r in results:
+                    if r.get("source") == "keyword_index" and r.get("match_term") in mod["name"]:
+                        score += 1
+                if score > best_score:
+                    best_score = score
+                    best_mod = mod
+
+            if best_mod and best_score > 0:
+                return best_mod["name"], best_mod
+
+            # 如果主题评分无差异，退回使用第一个 keyword_index 匹配
             for mod in matched_modules:
                 if mod["name"] in kw_modules:
                     return mod["name"], mod
@@ -1410,9 +1601,34 @@ class SearchEngine:
                 + (f'（研发 {mod.get("dev_owner", "")}）' if mod.get('dev_owner') else '')
             )
 
-        # 最佳段落摘要
+        # 最佳段落摘要：优先选择与查询主题最相关的段落
         if kb_sections:
-            best = kb_sections[0]
+            # 提取查询中的业务场景关键词，用于优选段落
+            query_topics = self._extract_topic_keywords(query)
+
+            # 第一轮：跳过主题不匹配的段落，同时记录是否包含查询主题词
+            candidates = []
+            for sec in kb_sections:
+                is_mismatch, _ = self._check_topic_mismatch(
+                    query, sec['heading'], sec.get('content', '')
+                )
+                if is_mismatch:
+                    continue
+                # 检查段落标题/内容是否包含查询主题词
+                has_topic = any(
+                    qt in sec['heading'] or qt in sec.get('content', '')[:500]
+                    for qt in query_topics
+                ) if query_topics else False
+                candidates.append((sec, has_topic))
+
+            if not candidates:
+                # 所有段落都被判定为不匹配，退回使用第一个
+                best = kb_sections[0]
+                parts.append(f'\n⚠️ 以下内容可能与查询不完全匹配，建议参考更具体的文档：')
+            else:
+                # 优先选择包含查询主题词的段落，否则使用第一个候选
+                best = next((s for s, has_t in candidates if has_t), candidates[0][0])
+
             content = best['content']
             # 简单清理：去图片语法、去 markdown 标记
             content = re.sub(r'!\[.*?\]\(.*?\)', '', content)
@@ -1429,7 +1645,7 @@ class SearchEngine:
         # 原始文档引用
         if raw_doc_sections:
             raw = raw_doc_sections[0]
-            raw_rel = raw['path'].replace('原始产品文档/', '')
+            raw_rel = raw['path'].replace('原始产品文档/', '').replace('projects/knowledge-base/raw-docs/', '')
             parts.append(f'📄 原始文档：`{raw_rel}`')
 
         return '\n'.join(parts) if parts else f'关于「{query}」，未在知识库中找到直接相关内容。建议尝试更具体的关键词或联系相关模块负责人。'

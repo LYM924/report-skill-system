@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FAQ 知识库 - 产品技术支持</title>
+<style>
+:root {
+  --bg: #ffffff; --bg-secondary: #f8f9fa; --text: #1a1a2e; --text-secondary: #6b7280;
+  --border: #e5e7eb; --accent: #2563eb; --accent-light: #dbeafe; --red: #dc2626;
+  --yellow: #d97706; --green: #059669; --red-light: #fef2f2; --yellow-light: #fffbeb;
+  --green-light: #ecfdf5; --shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1a1a2e; --bg-secondary: #16213e; --text: #e5e7eb; --text-secondary: #9ca3af;
+    --border: #374151; --accent: #60a5fa; --accent-light: #1e3a5f; --shadow: 0 1px 3px rgba(0,0,0,0.3);
+  }
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* 布局 */
+.layout { display: flex; min-height: 100vh; }
+.sidebar { width: 320px; min-width: 320px; background: var(--bg-secondary); border-right: 1px solid var(--border); padding: 20px; overflow-y: auto; max-height: 100vh; position: sticky; top: 0; }
+.main { flex: 1; padding: 30px 40px; max-width: 900px; }
+
+/* 搜索 */
+.search-box { position: sticky; top: 0; background: var(--bg-secondary); padding-bottom: 12px; z-index: 10; }
+.search-box input { width: 100%; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; background: var(--bg); color: var(--text); }
+.search-box input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-light); }
+
+/* 导航 */
+.nav-group { margin-bottom: 16px; }
+.nav-group h3 { font-size: 13px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+.nav-group ul { list-style: none; }
+.nav-group li { margin-bottom: 4px; }
+.nav-group li a { display: block; padding: 6px 10px; border-radius: 6px; font-size: 14px; transition: background 0.15s; }
+.nav-group li a:hover { background: var(--accent-light); text-decoration: none; }
+.nav-group li a.status-deprecated { color: var(--text-secondary); text-decoration: line-through; }
+
+/* 顶栏 */
+.topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+.topbar h1 { font-size: 24px; }
+.stats { display: flex; gap: 16px; font-size: 13px; color: var(--text-secondary); }
+
+/* FAQ 卡片 */
+.faq-card { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 24px; margin-bottom: 20px; box-shadow: var(--shadow); }
+.faq-header { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+.faq-meta { font-size: 12px; color: var(--text-secondary); margin-left: auto; }
+.faq-body h1 { font-size: 20px; margin-bottom: 12px; }
+.faq-body h2 { font-size: 17px; margin: 20px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.faq-body h3 { font-size: 15px; margin: 16px 0 8px; }
+.faq-body p { margin-bottom: 10px; }
+.faq-body table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+.faq-body th, .faq-body td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; font-size: 14px; }
+.faq-body th { background: var(--bg-secondary); font-weight: 600; }
+.faq-body code { background: var(--bg-secondary); padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+.faq-body pre { background: var(--bg-secondary); padding: 12px; border-radius: 8px; overflow-x: auto; margin: 12px 0; }
+.faq-body pre code { background: none; padding: 0; }
+.faq-body li { margin-bottom: 4px; }
+.faq-body .highlight { background: var(--accent-light); color: var(--accent); padding: 0 2px; border-radius: 2px; font-weight: 500; }
+
+/* 标签 */
+.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+.badge-active { background: var(--green-light); color: var(--green); }
+.badge-outdated { background: var(--yellow-light); color: var(--yellow); }
+.badge-deprecated { background: var(--red-light); color: var(--red); }
+.badge-id { background: var(--accent-light); color: var(--accent); font-family: monospace; }
+.faq-footer { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+
+/* 关键词 */
+.kw-row { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+.kw-tag { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 11px; background: var(--accent-light); color: var(--accent); }
+
+/* 响应式 */
+@media (max-width: 768px) {
+  .layout { flex-direction: column; }
+  .sidebar { width: 100%; min-width: 100%; max-height: none; position: static; border-right: none; border-bottom: 1px solid var(--border); }
+  .main { padding: 20px; }
+}
+
+/* 搜索高亮 */
+mark { background: #fef08a; padding: 0 2px; border-radius: 2px; }
+.hidden { display: none !important; }
+.no-results { text-align: center; padding: 40px; color: var(--text-secondary); }
+</style>
+</head>
+<body>
+<div class="layout">
+  <nav class="sidebar">
+    <div class="search-box">
+      <input type="text" id="search" placeholder="🔍 搜索 FAQ..." oninput="filterFAQs()">
+    </div>
+    <div id="nav-tree"><div class="nav-group"><h3>数智财务组 · 浙里报</h3><ul>
+<li>
+  <a href="#FAQ-SZ-ZLB-001" class="status-active">公务出行报销单选不到申请单</a>
+  <div class="kw-row"><span class="kw-tag">报销单</span> <span class="kw-tag">申请单</span> <span class="kw-tag">公务出行</span> <span class="kw-tag">差旅</span> <span class="kw-tag">无需报销</span> <span class="kw-tag">关联单据</span> <span class="kw-tag">选不到</span> <span class="kw-tag">找不到</span></div>
+</li>
+</ul></div>
+</div>
+  </nav>
+  <main class="main" id="search-results">
+    <div class="topbar">
+      <h1>📚 FAQ 知识库</h1>
+      <div class="stats">
+        <span>共 1 条 FAQ</span>
+        <span style="color:var(--green)">● 1 active</span>
+        
+        
+      </div>
+    </div>
+    <div id="faq-list"><article id="FAQ-SZ-ZLB-001" class="faq-card">
+  <div class="faq-header">
+    <span class="badge badge-id">FAQ-SZ-ZLB-001</span> <span class="badge badge-active">active</span>
+    <span class="faq-meta">数智财务组 / 浙里报 · 更新于 2026-08-12</span>
+  </div>
+  <div class="faq-body"><h1>公务出行报销单选不到申请单</h1>
+<h2>问题描述</h2>
+<p>在浙里报中创建公务出行（差旅）报销单时，关联申请单的选择列表中找不到目标申请单。</p>
+<h2>原因分析</h2>
+<p>共 7 种可能原因，按常见程度排列：</p>
+<table>
+<tr><td>#</td><td>原因</td><td>说明</td></tr>
+<tr><th>1</th><th>申请单未审批通过</th><th>申请单必须处于<span class="highlight">审批通过</span>状态才能被报销单关联</th></tr>
+<tr><td>2</td><td>申请单已被关联使用</td><td>固定场景的申请单仅可被关联一次，已被其他报销单关联后不再显示</td></tr>
+<tr><td>3</td><td>场景类型不匹配</td><td>公务出行报销单只能关联公务出行申请单，不能跨场景</td></tr>
+<tr><td>4</td><td>申请单金额已被用完</td><td>申请单预算金额已被之前报销单全部占用</td></tr>
+<tr><td>5</td><td>经办人不一致</td><td>申请单与报销单的经办人需匹配或有相应权限</td></tr>
+<tr><td>6</td><td>关账期间限制</td><td>财务关账期间可能限制报销单创建或关联</td></tr>
+<tr><td>7</td><td>申请单被标记"无需报销"</td><td>经办人标记后不再出现在选择列表（详见下方）</td></tr>
+</table>
+<h2>解决方法</h2>
+<h3>第 1-6 条：常规排查</h3>
+<li>确认申请单状态是否为<span class="highlight">审批通过</span></li>
+<li>确认申请单是否已被其他报销单关联</li>
+<li>确认申请单和报销单场景类型一致</li>
+<li>确认申请单预算金额未被用完</li>
+<li>确认经办人权限匹配</li>
+<li>确认不在关账期间</li>
+<h3>第 7 条：申请单被标记"无需报销"</h3>
+<p>公务出行申请单审批完成后，如果不需要报销，经办人可通过以下两种方式标记"无需报销"：</p>
+<strong>方式一：从已完成列表操作</strong>
+<li>进入<span class="highlight">我的单据</span>→<span class="highlight">已完成</span></li>
+<li>找到目标申请单</li>
+<li>点击<span class="highlight">更多操作</span>→<span class="highlight">无需报销</span></li>
+<strong>方式二：从报销单创建页面操作</strong>
+<li>创建报销单 → 关联申请单时</li>
+<li>在申请单操作模块点击<span class="highlight">无需报销</span></li>
+<p>标记后，该申请单将<strong>不再出现在创建报销单时的申请单选择列表中</strong>。如果误操作，需联系管理员或运营同学撤销。</p>
+<h2>排查要点</h2>
+<li>优先确认申请单是否在<span class="highlight">已完成</span>列表中</li>
+<li>检查是否被标记过"无需报销"（查看操作记录）</li>
+<li>确认申请单状态和关联状态</li>
+<h2>关联知识</h2>
+<li>浙里报 2025-12 版本迭代：固定场景仅支持关联申请单类型，且仅可关联一次</li>
+<li>浙里报 2026-02 版本迭代：公务出行单据附件自定义命名</li></div>
+  <div class="faq-footer">
+    <div class="kw-row"><span class="kw-tag">报销单</span> <span class="kw-tag">申请单</span> <span class="kw-tag">公务出行</span> <span class="kw-tag">差旅</span> <span class="kw-tag">无需报销</span> <span class="kw-tag">关联单据</span> <span class="kw-tag">选不到</span> <span class="kw-tag">找不到</span></div>
+  </div>
+</article>
+</div>
+    <div class="no-results hidden" id="no-results">未找到匹配的 FAQ</div>
+  </main>
+</div>
+
+<script>
+function filterFAQs() {
+  const query = document.getElementById('search').value.toLowerCase().trim();
+  const cards = document.querySelectorAll('.faq-card');
+  const navLinks = document.querySelectorAll('.nav-group li');
+  const noResults = document.getElementById('no-results');
+  let found = 0;
+
+  cards.forEach(card => {
+    const text = card.textContent.toLowerCase();
+    if (!query || text.includes(query)) {
+      card.classList.remove('hidden');
+      found++;
+      // 高亮
+      if (query) {
+        const body = card.querySelector('.faq-body');
+        const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+        body.innerHTML = body.innerHTML.replace(/<mark>|<\/mark>/g, '');
+        body.innerHTML = body.innerHTML.replace(regex, '<mark>$1</mark>');
+      }
+    } else {
+      card.classList.add('hidden');
+    }
+  });
+
+  // 更新导航高亮
+  navLinks.forEach(li => {
+    const a = li.querySelector('a');
+    const href = a.getAttribute('href');
+    if (!query) {
+      li.classList.remove('hidden');
+      return;
+    }
+    const card = document.querySelector(href);
+    if (card && !card.classList.contains('hidden')) {
+      li.classList.remove('hidden');
+    } else {
+      li.classList.add('hidden');
+    }
+  });
+
+  noResults.classList.toggle('hidden', found > 0 || !query);
+}
+
+// 初始加载
+document.addEventListener('DOMContentLoaded', () => {
+  const hash = window.location.hash;
+  if (hash) {
+    const card = document.querySelector(hash);
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+});
+</script>
+</body>
+</html>

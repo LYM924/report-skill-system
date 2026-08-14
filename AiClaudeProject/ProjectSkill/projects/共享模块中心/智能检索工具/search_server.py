@@ -3,6 +3,11 @@
 import json, os, sys, logging
 from pathlib import Path
 from http.server import HTTPServer, SimpleHTTPRequestHandler
+from socketserver import ThreadingMixIn
+
+class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
+    """多线程 HTTP 服务器，支持并发请求（避免 SSE 流式连接阻塞其他请求）"""
+    daemon_threads = True
 from urllib.parse import urlparse, parse_qs, quote as url_quote
 
 logging.getLogger().setLevel(logging.WARNING)
@@ -329,7 +334,7 @@ class SearchHandler(SimpleHTTPRequestHandler):
 
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
-    server = HTTPServer(("0.0.0.0", port), SearchHandler)
+    server = ThreadingHTTPServer(("0.0.0.0", port), SearchHandler)
     print(f"\n  产品知识库搜索服务已启动")
     print(f"  打开浏览器访问: http://localhost:{port}\n")
     try:
