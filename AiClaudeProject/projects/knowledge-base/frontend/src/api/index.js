@@ -26,7 +26,7 @@ async function apiFetch(path, params = {}) {
  * 智能搜索
  * @param {string} query - 搜索关键词
  * @param {string} scope - 搜索范围: all | doc | faq | ticket | dept
- * @returns {Promise<{results, answer, faqs, tickets}>}
+ * @returns {Promise<{results, answer, faqs, tickets, claude_stream_url}>}
  */
 export async function searchKnowledge(query, scope = 'all') {
   const data = await apiFetch('/search', { q: query, top: 10 });
@@ -109,7 +109,7 @@ export async function rebuildIndex() {
 
 /**
  * SSE 流式调用 Claude 总结
- * @param {string} url - SSE endpoint，如 /api/claude-stream?sid=xxx
+ * @param {string} url - SSE endpoint，完整路径如 /api/claude-stream?sid=xxx
  * @param {object} callbacks - { onToken, onComplete, onError }
  * @returns {function} abort - 调用以取消请求
  */
@@ -122,6 +122,7 @@ export function streamClaudeSummary(url, callbacks = {}) {
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
+      if (!response.body) throw new Error('Response body is not readable');
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
@@ -152,6 +153,7 @@ export function streamClaudeSummary(url, callbacks = {}) {
               }
               if (parsed.type === 'complete' && onComplete) {
                 onComplete(parsed);
+                return;
               }
             } catch (e) {
               // 跳过解析失败的行
