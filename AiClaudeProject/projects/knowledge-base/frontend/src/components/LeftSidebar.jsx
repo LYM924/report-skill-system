@@ -120,9 +120,8 @@ const allMenuItems = [
     icon: <AppstoreOutlined />,
     children: buildProductChildren(),
   },
-  { key: 'ticket_deposit', label: '工单沉淀', icon: <BugOutlined /> },
-  { key: 'faq', label: 'FAQ库', icon: <QuestionCircleOutlined /> },
   { key: 'ticket', label: '工单知识', icon: <FileTextOutlined /> },
+  { key: 'faq', label: 'FAQ库', icon: <QuestionCircleOutlined /> },
 ];
 
 function LeftSidebar({ selectedNav, onNavChange, collapsed, onToggleCollapse }) {
