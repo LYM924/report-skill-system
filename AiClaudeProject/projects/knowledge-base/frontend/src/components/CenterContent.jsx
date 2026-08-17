@@ -9,7 +9,7 @@
  * 5. 知识总览（渐变卡片）
  */
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Typography, Card, Tag, Input, Button, Select, Row, Col, Spin, Empty } from 'antd';
 import {
   RobotOutlined, SearchOutlined, BulbOutlined,
@@ -18,9 +18,12 @@ import {
   DownOutlined, FileTextOutlined,
   QuestionCircleOutlined, BarChartOutlined,
 } from '@ant-design/icons';
-import { searchKnowledge, getDashboardStats, getDocuments, streamClaudeSummary } from '../api';
+import { searchKnowledge, getDashboardStats, streamClaudeSummary } from '../api';
 
 const { Text, Paragraph } = Typography;
+
+/** 光标闪烁动画 (定义一次，避免每次渲染重新注入 <style>) */
+const BLINK_KEYFRAMES = <style>{`@keyframes blink { 50% { opacity: 0; } }`}</style>;
 
 const quickActions = [
   { key: 'ai_summary', label: '大模型总结', icon: <RobotOutlined />, color: '#fff', bg: '#1e293b' },
@@ -112,7 +115,7 @@ function ResultCard({ item, keywords, onClick }) {
 }
 
 /** AI 总结面板 */
-function AISummaryPanel({ streamUrl, query }) {
+function AISummaryPanel({ streamUrl }) {
   const [summary, setSummary] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [done, setDone] = useState(false);
@@ -120,16 +123,8 @@ function AISummaryPanel({ streamUrl, query }) {
   const [deepMode, setDeepMode] = useState(false);
   const abortRef = useRef(null);
 
-  // 自动触发摘要
-  useEffect(() => {
-    if (!streamUrl) return;
-    setSummary('');
-    setDone(false);
-    setError(null);
-    setStreaming(true);
-    setDeepMode(false);
-
-    const abort = streamClaudeSummary(streamUrl, {
+  const startStream = useCallback((url) => {
+    const abort = streamClaudeSummary(url, {
       onToken: (text) => {
         setSummary(prev => prev + text);
       },
@@ -143,9 +138,22 @@ function AISummaryPanel({ streamUrl, query }) {
       },
     });
     abortRef.current = abort;
+    return abort;
+  }, []);
+
+  // 自动触发摘要
+  useEffect(() => {
+    if (!streamUrl) return;
+    setSummary('');
+    setDone(false);
+    setError(null);
+    setStreaming(true);
+    setDeepMode(false);
+
+    const abort = startStream(streamUrl);
 
     return () => abort();
-  }, [streamUrl]);
+  }, [streamUrl, startStream]);
 
   // 深度分析
   const handleDeepAnalysis = () => {
@@ -159,20 +167,7 @@ function AISummaryPanel({ streamUrl, query }) {
       ? streamUrl + '&deep=1'
       : streamUrl + '?deep=1';
 
-    const abort = streamClaudeSummary(deepUrl, {
-      onToken: (text) => {
-        setSummary(prev => prev + text);
-      },
-      onComplete: () => {
-        setStreaming(false);
-        setDone(true);
-      },
-      onError: (err) => {
-        setStreaming(false);
-        setError(err.message);
-      },
-    });
-    abortRef.current = abort;
+    startStream(deepUrl);
   };
 
   if (!streamUrl) return null;
@@ -252,12 +247,7 @@ function AISummaryPanel({ streamUrl, query }) {
         </div>
       ) : null}
 
-      {/* 光标动画样式 */}
-      <style>{`
-        @keyframes blink {
-          50% { opacity: 0; }
-        }
-      `}</style>
+      {BLINK_KEYFRAMES}
     </Card>
   );
 }
@@ -266,15 +256,13 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchScope, setSearchScope] = useState('all');
   const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState(null);
 
   const [dashboardStats, setDashboardStats] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([
-      getDashboardStats(),
-      getDocuments(),
-    ]).then(([stats]) => {
+    getDashboardStats().then(stats => {
       if (stats) setDashboardStats(stats);
       setLoading(false);
     });
@@ -283,9 +271,15 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc }) {
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
     setSearching(true);
-    const results = await searchKnowledge(searchQuery.trim(), searchScope);
-    onSearchResultsChange(results);
-    setSearching(false);
+    setSearchError(null);
+    try {
+      const results = await searchKnowledge(searchQuery.trim(), searchScope);
+      onSearchResultsChange(results);
+    } catch (err) {
+      setSearchError(err.message || '搜索失败');
+    } finally {
+      setSearching(false);
+    }
   };
 
   // 分组搜索结果
@@ -368,7 +362,6 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc }) {
       {searchResults?.claude_stream_url && (
         <AISummaryPanel
           streamUrl={searchResults.claude_stream_url}
-          query={searchQuery}
         />
       )}
 
@@ -503,8 +496,13 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc }) {
                 <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 8, padding: '16px 20px' }}>
                   <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 4 }}>本周新增</div>
                   <div style={{ fontSize: 32, fontWeight: 700, lineHeight: 1.2 }}>
-                    {stats.weekNew || '-'} <span style={{ fontSize: 14, fontWeight: 400 }}>%</span>
+                    {stats.weekNew || '-'}
                   </div>
+                  {stats.weekNewGrowth != null && (
+                    <div style={{ fontSize: 13, opacity: 0.8, marginTop: 2 }}>
+                      较上周 {stats.weekNewGrowth}%
+                    </div>
+                  )}
                 </div>
               </Col>
             </Row>
