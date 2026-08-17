@@ -341,6 +341,17 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc }) {
         </div>
       </div>
 
+      {/* 搜索错误提示 */}
+      {searchError && (
+        <div style={{
+          marginBottom: 12, padding: '8px 16px',
+          background: '#FEF2F2', border: '1px solid #FECACA',
+          borderRadius: 8, color: '#DC2626', fontSize: 13,
+        }}>
+          ⚠️ 搜索失败：{searchError}
+        </div>
+      )}
+
       {/* ===== 2. 快捷按钮 ===== */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
         {quickActions.map(action => (
