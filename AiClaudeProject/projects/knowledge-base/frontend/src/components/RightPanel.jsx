@@ -1,26 +1,24 @@
 /**
  * RightPanel.jsx - 右侧侧边信息看板
  *
- * 模块：
- * 1. 高频FAQ + 工单问题沉淀（含趋势折线图）
- * 2. 相关产品文档（含趋势图）
- * 3. 最近更新
+ * 两种模式：
+ * - 默认: 高频FAQ + 最近更新
+ * - 选中文档: 文档详情视图（标题、元信息、Markdown 内容、关联 FAQ）
  */
 
 import React, { useState, useEffect } from 'react';
-import { Typography, Empty, Tag, Badge, Avatar, Row, Col } from 'antd';
+import { Typography, Empty, Tag, Avatar, Row, Col, Button, Spin, Divider } from 'antd';
 import {
   QuestionCircleOutlined, FileTextOutlined, ClockCircleOutlined,
-  ArrowUpOutlined, RightOutlined,
+  RightOutlined, ArrowLeftOutlined,
+  FolderOutlined, TagOutlined,
 } from '@ant-design/icons';
-import { mockFAQs, trendData, recentUpdates, docListData } from '../mock/data';
-import { getFAQs } from '../api';
+import { mockFAQs, trendData, recentUpdates } from '../mock/data';
+import { getFAQs, getDocumentDetail } from '../api';
 
-const { Text } = Typography;
+const { Text, Paragraph } = Typography;
 
-/**
- * 迷你 SVG 折线图
- */
+/** 迷你 SVG 折线图 */
 function MiniChart({ data, color = '#0D9488', height = 50 }) {
   if (!data || data.length === 0) return null;
   const maxVal = Math.max(...data.map(d => d.value));
@@ -47,20 +45,162 @@ function MiniChart({ data, color = '#0D9488', height = 50 }) {
   );
 }
 
-function RightPanel() {
-  const [faqs, setFaqs] = useState([]);
+/** 简单 Markdown 渲染（处理标题、列表、表格） */
+function SimpleMarkdown({ content }) {
+  if (!content) return <Text type="secondary">暂无内容</Text>;
 
-  // 加载 FAQ 数据
+  const lines = content.split('\n');
+  const elements = [];
+  let inCodeBlock = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // 跳过 frontmatter
+    if (line === '---' && i === 0) {
+      while (i + 1 < lines.length && lines[i + 1] !== '---') i++;
+      i++; // skip closing ---
+      continue;
+    }
+
+    if (line.startsWith('```')) {
+      inCodeBlock = !inCodeBlock;
+      continue;
+    }
+
+    if (inCodeBlock) {
+      elements.push(
+        <pre key={i} style={{ background: '#f1f5f9', padding: '8px 12px', borderRadius: 6, fontSize: 12, overflow: 'auto', maxHeight: 200 }}>
+          {line}
+        </pre>
+      );
+      continue;
+    }
+
+    if (!line.trim()) {
+      elements.push(<div key={i} style={{ height: 8 }} />);
+      continue;
+    }
+
+    if (line.startsWith('### ')) {
+      elements.push(<Text strong key={i} style={{ fontSize: 14, display: 'block', marginTop: 12, marginBottom: 4 }}>{line.slice(4)}</Text>);
+    } else if (line.startsWith('## ')) {
+      elements.push(<Text strong key={i} style={{ fontSize: 15, display: 'block', marginTop: 16, marginBottom: 6, color: '#0D9488' }}>{line.slice(3)}</Text>);
+    } else if (line.startsWith('# ')) {
+      elements.push(<Text strong key={i} style={{ fontSize: 16, display: 'block', marginTop: 16, marginBottom: 8 }}>{line.slice(2)}</Text>);
+    } else if (line.match(/^[-*]\s/)) {
+      elements.push(
+        <div key={i} style={{ paddingLeft: 16, fontSize: 13, lineHeight: 1.8, color: '#4B5563' }}>
+          • {line.replace(/^[-*]\s/, '')}
+        </div>
+      );
+    } else if (line.startsWith('|')) {
+      elements.push(
+        <Text key={i} style={{ fontSize: 12, display: 'block', color: '#6B7280', fontFamily: 'monospace' }}>
+          {line}
+        </Text>
+      );
+    } else {
+      elements.push(
+        <Text key={i} style={{ fontSize: 13, display: 'block', lineHeight: 1.8, color: '#4B5563' }}>
+          {line}
+        </Text>
+      );
+    }
+  }
+
+  return <div style={{ maxHeight: 'calc(100vh - 200px)', overflow: 'auto' }}>{elements}</div>;
+}
+
+function RightPanel({ selectedDoc, onClearDoc }) {
+  const [faqs, setFaqs] = useState([]);
+  const [docDetail, setDocDetail] = useState(null);
+  const [docLoading, setDocLoading] = useState(false);
+
   useEffect(() => {
     getFAQs().then(data => {
       if (data && data.length > 0) setFaqs(data);
     });
   }, []);
 
+  // 当选中文档时，加载文档详情
+  useEffect(() => {
+    if (!selectedDoc) {
+      setDocDetail(null);
+      return;
+    }
+    setDocLoading(true);
+    const path = selectedDoc.path || selectedDoc._source || '';
+    getDocumentDetail(path).then(data => {
+      if (data) setDocDetail(data);
+      setDocLoading(false);
+    }).catch(() => {
+      // fallback: 使用 selectedDoc 自带的信息
+      setDocDetail({
+        title: selectedDoc.title || '文档详情',
+        path: selectedDoc.path || '',
+        content: selectedDoc.snippets?.join('\n') || selectedDoc.snippet || selectedDoc.content || '',
+        frontmatter: {},
+      });
+      setDocLoading(false);
+    });
+  }, [selectedDoc]);
+
+  // ===== 文档详情视图 =====
+  if (selectedDoc) {
+    return (
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: 16 }}>
+        <Button
+          type="text"
+          icon={<ArrowLeftOutlined />}
+          onClick={onClearDoc}
+          style={{ alignSelf: 'flex-start', marginBottom: 12, padding: '4px 8px', fontSize: 13, color: '#0D9488' }}
+        >
+          返回
+        </Button>
+
+        {docLoading ? (
+          <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
+        ) : docDetail ? (
+          <div style={{ flex: 1, overflow: 'auto' }}>
+            <Text strong style={{ fontSize: 16, display: 'block', marginBottom: 12 }}>
+              {docDetail.title || selectedDoc.title || '文档详情'}
+            </Text>
+
+            <div style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {docDetail.frontmatter?.module && (
+                <Tag icon={<FolderOutlined />} style={{ fontSize: 11, borderRadius: 4 }}>
+                  {docDetail.frontmatter.module}
+                </Tag>
+              )}
+              {docDetail.frontmatter?.dept && (
+                <Tag icon={<TagOutlined />} style={{ fontSize: 11, borderRadius: 4 }}>
+                  {docDetail.frontmatter.dept}
+                </Tag>
+              )}
+              {docDetail.path && (
+                <Text type="secondary" style={{ fontSize: 11, display: 'block', width: '100%', marginTop: 4 }}>
+                  路径: {docDetail.path}
+                </Text>
+              )}
+            </div>
+
+            <Divider style={{ margin: '12px 0' }} />
+
+            <SimpleMarkdown content={docDetail.content} />
+          </div>
+        ) : (
+          <Empty description="无法加载文档" />
+        )}
+      </div>
+    );
+  }
+
+  // ===== 默认视图 =====
   const displayFAQs = faqs.length > 0 ? faqs : mockFAQs;
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: 16 }}>
-      {/* ===== 1. 高频FAQ - 工单问题沉淀 ===== */}
+      {/* ===== 1. 高频FAQ ===== */}
       <div style={{
         background: 'linear-gradient(135deg, #0D9488 0%, #2DD4BF 100%)',
         borderRadius: 12, padding: 16, marginBottom: 20, color: '#fff',
