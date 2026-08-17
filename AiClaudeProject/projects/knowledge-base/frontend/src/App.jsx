@@ -23,6 +23,16 @@ function App() {
   const [searchResults, setSearchResults] = useState(null);
   const [selectedDoc, setSelectedDoc] = useState(null); // 右侧面板选中的文档
 
+  // 点击 logo 回到首页
+  const handleGoHome = () => {
+    if (searchResults) {
+      setSearchResults(null);
+      setSelectedDoc(null);
+    } else {
+      window.location.reload();
+    }
+  };
+
   return (
     <ConfigProvider
       locale={zhCN}
@@ -44,7 +54,7 @@ function App() {
           display: 'flex', alignItems: 'center', zIndex: 100,
           flexShrink: 0,
         }}>
-          <TopNav />
+          <TopNav onGoHome={handleGoHome} />
         </Header>
 
         <Layout style={{ flex: 1, overflow: 'hidden' }}>

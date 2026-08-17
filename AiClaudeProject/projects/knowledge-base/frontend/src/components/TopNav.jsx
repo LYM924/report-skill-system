@@ -19,7 +19,7 @@ const menuItems = [
   { key: 'ai', label: 'AI助手', icon: <RobotOutlined /> },
 ];
 
-function TopNav() {
+function TopNav({ onGoHome }) {
   const [activeMenu, setActiveMenu] = useState('search');
 
   return (
@@ -29,8 +29,11 @@ function TopNav() {
         fontSize: 17, fontWeight: 700, color: '#1a1a2e',
         whiteSpace: 'nowrap', marginRight: 28,
         display: 'flex', alignItems: 'center', gap: 10,
-        width: 220,
-      }}>
+        width: 220, cursor: 'pointer',
+      }}
+        onClick={onGoHome}
+        title="点击回到首页"
+      >
         <div style={{
           width: 34, height: 34, borderRadius: 8,
           background: 'linear-gradient(135deg, #0D9488 0%, #2DD4BF 100%)',
