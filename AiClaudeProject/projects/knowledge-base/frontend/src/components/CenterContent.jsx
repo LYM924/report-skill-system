@@ -17,6 +17,7 @@ import {
   LoadingOutlined, ReloadOutlined,
   DownOutlined, FileTextOutlined,
   QuestionCircleOutlined, BarChartOutlined,
+  HistoryOutlined, CloseOutlined,
 } from '@ant-design/icons';
 import { searchKnowledge, getDashboardStats, streamClaudeSummary } from '../api';
 
@@ -257,9 +258,37 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc }) {
   const [searchScope, setSearchScope] = useState('all');
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState(null);
+  const [searchTime, setSearchTime] = useState(null); // 搜索耗时(ms)
 
   const [dashboardStats, setDashboardStats] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  // 搜索历史（最近5条，存 localStorage）
+  const SEARCH_HISTORY_KEY = 'kb_search_history';
+  const [searchHistory, setSearchHistory] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY) || '[]');
+    } catch { return []; }
+  });
+  const [showHistory, setShowHistory] = useState(false);
+
+  // 保存搜索历史
+  const saveToHistory = (query) => {
+    const updated = [query, ...searchHistory.filter(q => q !== query)].slice(0, 5);
+    setSearchHistory(updated);
+    try { localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(updated)); } catch {}
+  };
+
+  // Esc 键清除搜索，回到首页
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && searchResults) {
+        onSearchResultsChange(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [searchResults, onSearchResultsChange]);
 
   useEffect(() => {
     getDashboardStats().then(stats => {
@@ -268,13 +297,18 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc }) {
     });
   }, []);
 
-  const handleSearch = async () => {
-    if (!searchQuery.trim()) return;
+  const handleSearch = async (queryOverride) => {
+    const q = (queryOverride || searchQuery).trim();
+    if (!q) return;
     setSearching(true);
     setSearchError(null);
+    const startTime = performance.now();
     try {
-      const results = await searchKnowledge(searchQuery.trim(), searchScope);
+      const results = await searchKnowledge(q, searchScope);
       onSearchResultsChange(results);
+      saveToHistory(q);
+      setSearchTime(Math.round(performance.now() - startTime));
+      setShowHistory(false);
     } catch (err) {
       setSearchError(err.message || '搜索失败');
     } finally {
@@ -320,19 +354,62 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc }) {
               { value: 'dept', label: '部门知识' },
             ]}
           />
-          <Input
-            placeholder="输入关键词搜索知识库..."
-            size="large"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            onPressEnter={handleSearch}
-            style={{ flex: 1, borderRadius: 0, borderLeft: 'none', borderRight: 'none' }}
-          />
+          <div style={{ flex: 1, position: 'relative' }}>
+            <Input
+              placeholder="输入关键词搜索知识库..."
+              size="large"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              onPressEnter={() => handleSearch()}
+              onFocus={() => setShowHistory(searchHistory.length > 0)}
+              onBlur={() => setTimeout(() => setShowHistory(false), 200)}
+              style={{ borderRadius: 0, borderLeft: 'none', borderRight: 'none' }}
+            />
+            {/* 搜索历史下拉 */}
+            {showHistory && searchHistory.length > 0 && (
+              <div style={{
+                position: 'absolute', top: '100%', left: 0, right: 0,
+                background: '#fff', border: '1px solid #e2e8f0', borderRadius: '0 0 8px 8px',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.08)', zIndex: 10, overflow: 'hidden',
+              }}>
+                <div style={{ padding: '6px 12px', fontSize: 11, color: '#999', borderBottom: '1px solid #f0f0f0' }}>
+                  最近搜索
+                </div>
+                {searchHistory.map((q, i) => (
+                  <div
+                    key={i}
+                    onMouseDown={() => { setSearchQuery(q); handleSearch(q); }}
+                    style={{
+                      padding: '8px 12px', fontSize: 13, cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      borderBottom: i < searchHistory.length - 1 ? '1px solid #f5f5f5' : 'none',
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <HistoryOutlined style={{ color: '#999', fontSize: 12 }} />
+                      {q}
+                    </span>
+                    <CloseOutlined
+                      style={{ color: '#ccc', fontSize: 10 }}
+                      onMouseDown={e => {
+                        e.stopPropagation();
+                        const updated = searchHistory.filter((_, j) => j !== i);
+                        setSearchHistory(updated);
+                        localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(updated));
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           <Button
             type="primary"
             size="large"
             icon={<SearchOutlined />}
-            onClick={handleSearch}
+            onClick={() => handleSearch()}
             loading={searching}
             style={{ borderRadius: '0 8px 8px 0', background: '#0D9488', borderColor: '#0D9488' }}
           >
@@ -340,6 +417,15 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc }) {
           </Button>
         </div>
       </div>
+
+      {/* 搜索结果统计 */}
+      {searchResults && searchResults.total != null && !searching && (
+        <div style={{ marginBottom: 12, fontSize: 12, color: '#999' }}>
+          找到 <Text strong style={{ color: '#0D9488' }}>{searchResults.total}</Text> 条结果
+          {searchTime != null && <span>，耗时 <Text strong style={{ color: '#666' }}>{searchTime}ms</Text></span>}
+          <span style={{ marginLeft: 12, color: '#bbb' }}>按 Esc 清除搜索结果</span>
+        </div>
+      )}
 
       {/* 搜索错误提示 */}
       {searchError && (
