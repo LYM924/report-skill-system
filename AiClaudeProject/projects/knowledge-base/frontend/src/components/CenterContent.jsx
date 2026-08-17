@@ -10,7 +10,7 @@
  */
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Typography, Card, Tag, Input, Button, Select, Row, Col, Spin, Empty } from 'antd';
+import { Typography, Card, Tag, Input, Button, Select, Row, Col, Spin, Empty, Table } from 'antd';
 import {
   RobotOutlined, SearchOutlined, BulbOutlined,
   LinkOutlined, FileSearchOutlined, CloudUploadOutlined,
@@ -19,7 +19,7 @@ import {
   QuestionCircleOutlined, BarChartOutlined,
   HistoryOutlined, CloseOutlined,
 } from '@ant-design/icons';
-import { searchKnowledge, getDashboardStats, streamClaudeSummary } from '../api';
+import { searchKnowledge, getDashboardStats, getDocuments, streamClaudeSummary } from '../api';
 
 const { Text, Paragraph } = Typography;
 
@@ -261,6 +261,7 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc }) {
   const [searchTime, setSearchTime] = useState(null); // 搜索耗时(ms)
 
   const [dashboardStats, setDashboardStats] = useState(null);
+  const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // 搜索历史（最近5条，存 localStorage）
@@ -291,8 +292,12 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc }) {
   }, [searchResults, onSearchResultsChange]);
 
   useEffect(() => {
-    getDashboardStats().then(stats => {
+    Promise.all([
+      getDashboardStats(),
+      getDocuments(),
+    ]).then(([stats, docs]) => {
       if (stats) setDashboardStats(stats);
+      if (docs) setDocuments(docs);
       setLoading(false);
     });
   }, []);
@@ -605,6 +610,31 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc }) {
             </Row>
           )}
         </div>
+      )}
+
+      {/* ===== 文档列表（仅首页展示） ===== */}
+      {!searchResults && (
+        <Card style={{ borderRadius: 12, border: '1px solid #e2e8f0' }}>
+          <Text strong style={{ fontSize: 16, display: 'block', marginBottom: 12 }}>文档</Text>
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
+          ) : documents.length === 0 ? (
+            <Empty description="暂无文档" />
+          ) : (
+            <Table
+              dataSource={documents}
+              columns={[
+                { title: '文档', dataIndex: 'name', key: 'name', render: text => <Text strong style={{ fontSize: 13, color: '#333' }}>{text}</Text> },
+                { title: '产品记录', dataIndex: 'product', key: 'product', render: text => <span style={{ color: '#555' }}>{text || '-'}</span> },
+                { title: '所属部门', dataIndex: 'dept', key: 'dept', render: text => <span style={{ color: '#555' }}>{text || '-'}</span> },
+                { title: '更新时间', dataIndex: 'updated', key: 'updated', render: text => <span style={{ color: '#555' }}>{text || '-'}</span> },
+              ]}
+              rowKey="id"
+              pagination={{ pageSize: 6, size: 'small' }}
+              size="middle"
+            />
+          )}
+        </Card>
       )}
     </div>
   );
