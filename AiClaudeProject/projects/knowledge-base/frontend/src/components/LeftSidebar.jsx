@@ -102,14 +102,11 @@ function buildDeptChildren() {
 
 const allMenuItems = [
   { key: 'all', label: '全部知识', icon: <FolderOpenOutlined /> },
-  { key: 'faq', label: 'FAQ库', icon: <QuestionCircleOutlined /> },
-  { key: 'ticket_deposit', label: '工单沉淀', icon: <BugOutlined /> },
-  { key: 'ticket', label: '工单知识', icon: <FileTextOutlined /> },
   {
-    key: 'product-modules',
-    label: '产品模块',
-    icon: <AppstoreOutlined />,
-    children: buildProductChildren(),
+    key: 'dept-knowledge',
+    label: '部门知识',
+    icon: <TeamOutlined />,
+    children: buildDeptChildren(),
   },
   {
     key: 'business-modules',
@@ -118,11 +115,14 @@ const allMenuItems = [
     children: buildBizChildren(),
   },
   {
-    key: 'dept-knowledge',
-    label: '部门知识',
-    icon: <TeamOutlined />,
-    children: buildDeptChildren(),
+    key: 'product-modules',
+    label: '产品模块',
+    icon: <AppstoreOutlined />,
+    children: buildProductChildren(),
   },
+  { key: 'ticket_deposit', label: '工单沉淀', icon: <BugOutlined /> },
+  { key: 'faq', label: 'FAQ库', icon: <QuestionCircleOutlined /> },
+  { key: 'ticket', label: '工单知识', icon: <FileTextOutlined /> },
 ];
 
 function LeftSidebar({ selectedNav, onNavChange, collapsed, onToggleCollapse }) {
