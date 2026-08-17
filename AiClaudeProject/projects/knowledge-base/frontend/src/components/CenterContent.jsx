@@ -2,22 +2,25 @@
  * CenterContent.jsx - 中间主面板
  *
  * 布局（从上到下）：
- * 1. 搜索栏（全宽一行）→ 对接 searchKnowledge API
- * 2. 快捷按钮（大模型总结、自动关联文档、相似问题推荐、工单知识沉淀）
- * 3. 知识总览（渐变背景卡片）→ 对接 getDashboardStats API
- * 4. AI 搜索结果展示
- * 5. 文档列表表格 → 对接 getDocuments API
+ * 1. 搜索栏（全宽一行）
+ * 2. 快捷按钮
+ * 3. AI 总结面板（搜索后自动流式展示）
+ * 4. 搜索结果卡片列表（按类型分组）
+ * 5. 知识总览（渐变卡片）
  */
 
-import React, { useState, useEffect } from 'react';
-import { Typography, Card, Table, Tag, Tabs, Input, Button, Select, Row, Col, Spin, Empty } from 'antd';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { Typography, Card, Tag, Input, Button, Select, Row, Col, Spin, Empty } from 'antd';
 import {
   RobotOutlined, SearchOutlined, BulbOutlined,
   LinkOutlined, FileSearchOutlined, CloudUploadOutlined,
+  LoadingOutlined, ReloadOutlined,
+  DownOutlined, FileTextOutlined,
+  QuestionCircleOutlined, BarChartOutlined,
 } from '@ant-design/icons';
-import { searchKnowledge, getDashboardStats, getDocuments } from '../api';
+import { searchKnowledge, getDashboardStats, getDocuments, streamClaudeSummary } from '../api';
 
-const { Text } = Typography;
+const { Text, Paragraph } = Typography;
 
 const quickActions = [
   { key: 'ai_summary', label: '大模型总结', icon: <RobotOutlined />, color: '#fff', bg: '#1e293b' },
@@ -26,54 +29,289 @@ const quickActions = [
   { key: 'ticket_deposit', label: '工单知识沉淀', icon: <CloudUploadOutlined />, color: '#333', bg: '#fff' },
 ];
 
-function CenterContent() {
+/** 高亮关键词 */
+function highlightText(text, keywords) {
+  if (!text || !keywords || keywords.length === 0) return text;
+  const escaped = keywords
+    .filter(Boolean)
+    .map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .filter((v, i, arr) => arr.indexOf(v) === i);
+  if (escaped.length === 0) return text;
+  const pattern = new RegExp(`(${escaped.join('|')})`, 'gi');
+  const parts = text.split(pattern);
+  return parts.map((part, i) => {
+    const lower = part.toLowerCase();
+    const isMatch = escaped.some(k => lower === k.toLowerCase());
+    return isMatch
+      ? React.createElement('mark', { key: i, style: { background: '#FFF3CD', padding: '0 2px', borderRadius: 2 } }, part)
+      : part;
+  });
+}
+
+/** 结果类型图标和颜色 */
+const TYPE_CONFIG = {
+  faq: { icon: React.createElement(QuestionCircleOutlined), label: 'FAQ', color: '#0D9488', bg: 'rgba(13,148,136,0.08)' },
+  doc: { icon: React.createElement(FileTextOutlined), label: '产品文档', color: '#2563EB', bg: 'rgba(37,99,235,0.08)' },
+  report: { icon: React.createElement(BarChartOutlined), label: '报表', color: '#D97706', bg: 'rgba(217,119,6,0.08)' },
+};
+
+/** 结果卡片组件 */
+function ResultCard({ item, keywords, onClick }) {
+  const typeConf = TYPE_CONFIG[item.source === 'faq_knowledge' ? 'faq' : item.source === 'report_data' ? 'report' : 'doc'];
+  const snippet = item.snippets ? item.snippets.join(' ... ') : (item.snippet || '');
+  const pathParts = (item.path || '').split('/').filter(Boolean);
+  const breadcrumb = pathParts.slice(-3).join(' > ');
+
+  return (
+    <div
+      onClick={() => onClick(item)}
+      style={{
+        padding: '14px 16px',
+        borderBottom: '1px solid #f0f0f0',
+        cursor: 'pointer',
+        transition: 'background 0.15s',
+      }}
+      onMouseEnter={e => e.currentTarget.style.background = '#fafafa'}
+      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+    >
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 6 }}>
+        <div style={{
+          width: 32, height: 32, borderRadius: 6, background: typeConf.bg,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          flexShrink: 0, marginTop: 2,
+        }}>
+          {typeConf.icon}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <Text strong style={{ fontSize: 14, color: '#1e293b' }}>{item.title || '无标题'}</Text>
+            <Tag style={{ fontSize: 11, borderRadius: 4, lineHeight: '18px', margin: 0, color: typeConf.color, background: typeConf.bg, border: 'none' }}>
+              {typeConf.label}
+            </Tag>
+            {item.score != null && (
+              <Tag style={{ fontSize: 11, borderRadius: 4, lineHeight: '18px', margin: 0, color: '#6B7280', background: '#F3F4F6', border: 'none' }}>
+                相关度 {Math.round(item.score * 100 / 18)}%
+              </Tag>
+            )}
+          </div>
+          <Paragraph
+            ellipsis={{ rows: 2 }}
+            style={{ fontSize: 13, color: '#6B7280', margin: 0, lineHeight: 1.7 }}
+          >
+            {highlightText(snippet, keywords)}
+          </Paragraph>
+          {breadcrumb && (
+            <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 6 }}>
+              {breadcrumb}
+            </Text>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** AI 总结面板 */
+function AISummaryPanel({ streamUrl, query }) {
+  const [summary, setSummary] = useState('');
+  const [streaming, setStreaming] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState(null);
+  const [deepMode, setDeepMode] = useState(false);
+  const abortRef = useRef(null);
+
+  // 自动触发摘要
+  useEffect(() => {
+    if (!streamUrl) return;
+    setSummary('');
+    setDone(false);
+    setError(null);
+    setStreaming(true);
+    setDeepMode(false);
+
+    const abort = streamClaudeSummary(streamUrl, {
+      onToken: (text) => {
+        setSummary(prev => prev + text);
+      },
+      onComplete: () => {
+        setStreaming(false);
+        setDone(true);
+      },
+      onError: (err) => {
+        setStreaming(false);
+        setError(err.message);
+      },
+    });
+    abortRef.current = abort;
+
+    return () => abort();
+  }, [streamUrl]);
+
+  // 深度分析
+  const handleDeepAnalysis = () => {
+    setDeepMode(true);
+    setSummary('');
+    setDone(false);
+    setError(null);
+    setStreaming(true);
+
+    const deepUrl = streamUrl.includes('?')
+      ? streamUrl + '&deep=1'
+      : streamUrl + '?deep=1';
+
+    const abort = streamClaudeSummary(deepUrl, {
+      onToken: (text) => {
+        setSummary(prev => prev + text);
+      },
+      onComplete: () => {
+        setStreaming(false);
+        setDone(true);
+      },
+      onError: (err) => {
+        setStreaming(false);
+        setError(err.message);
+      },
+    });
+    abortRef.current = abort;
+  };
+
+  if (!streamUrl) return null;
+
+  return (
+    <Card
+      style={{
+        borderRadius: 12, marginBottom: 20,
+        border: '1px solid #e2e8f0',
+        background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
+      }}
+      styles={{ body: { padding: '16px 20px' } }}
+    >
+      {/* 标题栏 */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{
+            width: 32, height: 32, borderRadius: 8,
+            background: 'linear-gradient(135deg, #0D9488 0%, #2DD4BF 100%)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <RobotOutlined style={{ color: '#fff', fontSize: 16 }} />
+          </div>
+          <Text strong style={{ fontSize: 15 }}>
+            {deepMode ? 'AI 深度分析' : 'AI 智能总结'}
+          </Text>
+          {streaming && <LoadingOutlined style={{ color: '#0D9488' }} />}
+          {done && <Tag color="success" style={{ fontSize: 11, borderRadius: 4, lineHeight: '18px' }}>完成</Tag>}
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {done && !deepMode && (
+            <Button
+              size="small"
+              type="text"
+              icon={<DownOutlined />}
+              onClick={handleDeepAnalysis}
+              style={{ fontSize: 12, color: '#0D9488' }}
+            >
+              展开深度分析
+            </Button>
+          )}
+          {error && (
+            <Button
+              size="small"
+              type="text"
+              icon={<ReloadOutlined />}
+              onClick={handleDeepAnalysis}
+              style={{ fontSize: 12, color: '#EF4444' }}
+            >
+              重试
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* 内容区 */}
+      {error ? (
+        <div style={{ padding: '12px 0', color: '#EF4444', fontSize: 13 }}>
+          ⚠️ 总结生成失败：{error}
+        </div>
+      ) : summary ? (
+        <div style={{
+          fontSize: 14, lineHeight: 1.9, color: '#334155',
+          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+        }}>
+          {summary}
+          {streaming && <span style={{
+            display: 'inline-block', width: 2, height: 16,
+            background: '#0D9488', verticalAlign: 'text-bottom',
+            marginLeft: 2, animation: 'blink 1s step-end infinite',
+          }} />}
+        </div>
+      ) : streaming ? (
+        <div style={{ padding: '12px 0' }}>
+          <Spin indicator={<LoadingOutlined style={{ fontSize: 20 }} spin />} />
+          <Text type="secondary" style={{ marginLeft: 10, fontSize: 13 }}>正在生成总结...</Text>
+        </div>
+      ) : null}
+
+      {/* 光标动画样式 */}
+      <style>{`
+        @keyframes blink {
+          50% { opacity: 0; }
+        }
+      `}</style>
+    </Card>
+  );
+}
+
+function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchScope, setSearchScope] = useState('all');
-  const [searchResults, setSearchResults] = useState(null);
   const [searching, setSearching] = useState(false);
 
   const [dashboardStats, setDashboardStats] = useState(null);
-  const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [aiTab, setAiTab] = useState('summary');
 
-  /**
-   * 初始化：加载仪表盘数据和文档列表
-   */
   useEffect(() => {
     Promise.all([
       getDashboardStats(),
       getDocuments(),
-    ]).then(([stats, docs]) => {
+    ]).then(([stats]) => {
       if (stats) setDashboardStats(stats);
-      if (docs) setDocuments(docs);
       setLoading(false);
     });
   }, []);
 
-  /**
-   * 智能搜索
-   */
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
     setSearching(true);
     const results = await searchKnowledge(searchQuery.trim(), searchScope);
-    setSearchResults(results);
+    onSearchResultsChange(results);
     setSearching(false);
   };
 
-  const stats = dashboardStats || {};
+  // 分组搜索结果
+  const groupedResults = useMemo(() => {
+    if (!searchResults || !searchResults.results) return { faq: [], doc: [], report: [] };
+    const groups = { faq: [], doc: [], report: [] };
+    searchResults.results.forEach(item => {
+      const source = item.source || '';
+      if (source === 'faq_knowledge') {
+        groups.faq.push(item);
+      } else if (source === 'report_data') {
+        groups.report.push(item);
+      } else {
+        groups.doc.push(item);
+      }
+    });
+    return groups;
+  }, [searchResults]);
 
-  const columns = [
-    { title: '文档', dataIndex: 'name', key: 'name', render: text => <Text strong style={{ fontSize: 13, color: '#333' }}>{text}</Text> },
-    { title: '产品记录', dataIndex: 'product', key: 'product', render: text => <span style={{ color: '#555' }}>{text || '-'}</span> },
-    { title: '所属部门', dataIndex: 'dept', key: 'dept', render: text => <span style={{ color: '#555' }}>{text || '-'}</span> },
-    { title: '更新时间', dataIndex: 'updated', key: 'updated', render: text => <span style={{ color: '#555' }}>{text || '-'}</span> },
-  ];
+  const stats = dashboardStats || {};
+  const hasResults = searchResults && searchResults.results && searchResults.results.length > 0;
+  const keywords = searchResults?.tokens || [];
 
   return (
     <div style={{ maxWidth: 960 }}>
-      {/* ===== 1. 搜索栏（全宽一行）对接后端搜索 API ===== */}
+      {/* ===== 1. 搜索栏 ===== */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
         <div style={{ flex: 1, display: 'flex' }}>
           <Select
@@ -126,53 +364,18 @@ function CenterContent() {
         ))}
       </div>
 
-      {/* ===== 3. 知识总览（渐变卡片） ===== */}
-      <div style={{
-        background: 'linear-gradient(135deg, #334155 0%, #0D9488 100%)',
-        borderRadius: 12, padding: '20px 24px', marginBottom: 20, color: '#fff',
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <Text strong style={{ fontSize: 20, color: '#fff' }}>知识总览</Text>
-          <span style={{ cursor: 'pointer', fontSize: 16, opacity: 0.8 }}>▲</span>
-        </div>
-        {loading ? (
-          <Spin />
-        ) : (
-          <Row gutter={[16, 16]}>
-            <Col span={6}>
-              <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 8, padding: '16px 20px' }}>
-                <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 4 }}>知识文档</div>
-                <div style={{ fontSize: 32, fontWeight: 700, lineHeight: 1.2 }}>{stats.totalDocs?.toLocaleString() || '-'}</div>
-              </div>
-            </Col>
-            <Col span={6}>
-              <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 8, padding: '16px 20px' }}>
-                <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 4 }}>FAQ沉淀</div>
-                <div style={{ fontSize: 32, fontWeight: 700, lineHeight: 1.2 }}>{stats.faqCount?.toLocaleString() || '-'}</div>
-              </div>
-            </Col>
-            <Col span={6}>
-              <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 8, padding: '16px 20px' }}>
-                <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 4 }}>本周问题</div>
-                <div style={{ fontSize: 32, fontWeight: 700, lineHeight: 1.2 }}>{stats.weekQuestions || '-'}</div>
-              </div>
-            </Col>
-            <Col span={6}>
-              <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 8, padding: '16px 20px' }}>
-                <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 4 }}>本周新增</div>
-                <div style={{ fontSize: 32, fontWeight: 700, lineHeight: 1.2 }}>
-                  {stats.weekNew || '-'} <span style={{ fontSize: 14, fontWeight: 400 }}>%</span>
-                </div>
-              </div>
-            </Col>
-          </Row>
-        )}
-      </div>
+      {/* ===== 3. AI 总结面板 ===== */}
+      {searchResults?.claude_stream_url && (
+        <AISummaryPanel
+          streamUrl={searchResults.claude_stream_url}
+          query={searchQuery}
+        />
+      )}
 
-      {/* ===== 4. 搜索结果 / AI 分析 ===== */}
-      {searchResults && searchResults.answer && (
-        <Card style={{ borderRadius: 12, marginBottom: 20, border: '1px solid #e8e8e8' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+      {/* ===== 4. 搜索结果卡片列表 ===== */}
+      {searchResults && (
+        <Card style={{ borderRadius: 12, marginBottom: 20, border: '1px solid #e2e8f0' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: hasResults ? 16 : 0 }}>
             <div style={{
               width: 36, height: 36, borderRadius: 8, background: 'linear-gradient(135deg, #e8f0fe 0%, #d4e2fc 100%)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -180,50 +383,134 @@ function CenterContent() {
               <BulbOutlined style={{ fontSize: 18, color: '#0D9488' }} />
             </div>
             <div>
-              <Text strong style={{ fontSize: 15 }}>搜索结果</Text>
-              <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
-                找到 {searchResults.total || 0} 条结果
+              <Text strong style={{ fontSize: 15 }}>
+                {hasResults ? `搜索结果 (${searchResults.total || 0} 条)` : '无结果'}
               </Text>
+              {searching && <LoadingOutlined style={{ marginLeft: 8, color: '#0D9488' }} />}
             </div>
           </div>
-          <div style={{ padding: '12px 0', fontSize: 13, lineHeight: 1.9, color: '#555' }}>
-            {searchResults.answer?.summary || searchResults.answer?.answer || '暂无内容'}
-          </div>
+
+          {hasResults ? (
+            <div>
+              {/* FAQ 分组 */}
+              {groupedResults.faq.length > 0 && (
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '8px 16px', background: 'rgba(13,148,136,0.04)',
+                    borderRadius: '8px 8px 0 0', borderBottom: '1px solid #f0f0f0',
+                  }}>
+                    <QuestionCircleOutlined style={{ color: '#0D9488', fontSize: 14 }} />
+                    <Text strong style={{ fontSize: 13, color: '#0D9488' }}>
+                      FAQ 匹配 ({groupedResults.faq.length})
+                    </Text>
+                  </div>
+                  {groupedResults.faq.map((item, i) => (
+                    <ResultCard key={item.faq_id || item.path || i} item={item} keywords={keywords} onClick={onSelectDoc} />
+                  ))}
+                </div>
+              )}
+
+              {/* 产品文档分组 */}
+              {groupedResults.doc.length > 0 && (
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '8px 16px', background: 'rgba(37,99,235,0.04)',
+                    borderRadius: groupedResults.faq.length === 0 ? '8px 8px 0 0' : '0',
+                    borderBottom: '1px solid #f0f0f0',
+                  }}>
+                    <FileTextOutlined style={{ color: '#2563EB', fontSize: 14 }} />
+                    <Text strong style={{ fontSize: 13, color: '#2563EB' }}>
+                      产品文档 ({groupedResults.doc.length})
+                    </Text>
+                  </div>
+                  {groupedResults.doc.map((item, i) => (
+                    <ResultCard key={item.path || i} item={item} keywords={keywords} onClick={onSelectDoc} />
+                  ))}
+                </div>
+              )}
+
+              {/* 报表分组 */}
+              {groupedResults.report.length > 0 && (
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '8px 16px', background: 'rgba(217,119,6,0.04)',
+                    borderRadius: '0',
+                    borderBottom: '1px solid #f0f0f0',
+                  }}>
+                    <BarChartOutlined style={{ color: '#D97706', fontSize: 14 }} />
+                    <Text strong style={{ fontSize: 13, color: '#D97706' }}>
+                      报表数据 ({groupedResults.report.length})
+                    </Text>
+                  </div>
+                  {groupedResults.report.map((item, i) => (
+                    <ResultCard key={item.path || i} item={item} keywords={keywords} onClick={onSelectDoc} />
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description={
+                <div style={{ textAlign: 'center' }}>
+                  <Text type="secondary" style={{ fontSize: 13 }}>未找到相关结果</Text>
+                  <br />
+                  <Text type="secondary" style={{ fontSize: 12 }}>试试其他关键词，如"报销单"、"选不到"</Text>
+                </div>
+              }
+              style={{ padding: '24px 0' }}
+            />
+          )}
         </Card>
       )}
 
-      {/* ===== 5. 文档列表表格 ===== */}
-      <Card style={{ borderRadius: 12, border: '1px solid #e8e8e8' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Button size="small" style={{ background: '#1e293b', color: '#fff', borderRadius: 6, border: 'none', fontSize: 12 }}>AI总结果</Button>
-            <Button size="small" style={{ background: '#fff', color: '#333', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12 }}>核心结论</Button>
+      {/* ===== 5. 知识总览 ===== */}
+      {!searchResults && (
+        <div style={{
+          background: 'linear-gradient(135deg, #334155 0%, #0D9488 100%)',
+          borderRadius: 12, padding: '20px 24px', marginBottom: 20, color: '#fff',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <Text strong style={{ fontSize: 20, color: '#fff' }}>知识总览</Text>
+            <span style={{ cursor: 'pointer', fontSize: 16, opacity: 0.8 }}>▲</span>
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Button size="small" style={{ borderRadius: 6, fontSize: 12 }}>问答统计趋势</Button>
-            <Button size="small" style={{ borderRadius: 6, fontSize: 12 }}>引用文档</Button>
-            <Button size="small" style={{ background: '#1e293b', color: '#fff', borderRadius: 6, border: 'none', fontSize: 12 }}>置信度92%</Button>
-          </div>
+          {loading ? (
+            <Spin />
+          ) : (
+            <Row gutter={[16, 16]}>
+              <Col span={6}>
+                <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 8, padding: '16px 20px' }}>
+                  <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 4 }}>知识文档</div>
+                  <div style={{ fontSize: 32, fontWeight: 700, lineHeight: 1.2 }}>{stats.totalDocs?.toLocaleString() || '-'}</div>
+                </div>
+              </Col>
+              <Col span={6}>
+                <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 8, padding: '16px 20px' }}>
+                  <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 4 }}>FAQ沉淀</div>
+                  <div style={{ fontSize: 32, fontWeight: 700, lineHeight: 1.2 }}>{stats.faqCount?.toLocaleString() || '-'}</div>
+                </div>
+              </Col>
+              <Col span={6}>
+                <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 8, padding: '16px 20px' }}>
+                  <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 4 }}>本周问题</div>
+                  <div style={{ fontSize: 32, fontWeight: 700, lineHeight: 1.2 }}>{stats.weekQuestions || '-'}</div>
+                </div>
+              </Col>
+              <Col span={6}>
+                <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 8, padding: '16px 20px' }}>
+                  <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 4 }}>本周新增</div>
+                  <div style={{ fontSize: 32, fontWeight: 700, lineHeight: 1.2 }}>
+                    {stats.weekNew || '-'} <span style={{ fontSize: 14, fontWeight: 400 }}>%</span>
+                  </div>
+                </div>
+              </Col>
+            </Row>
+          )}
         </div>
-
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
-        ) : documents.length === 0 ? (
-          <Empty description="暂无文档" />
-        ) : (
-          <>
-            <Text strong style={{ fontSize: 16, display: 'block', marginBottom: 12 }}>文档</Text>
-            <Table
-              dataSource={documents}
-              columns={columns}
-              rowKey="id"
-              pagination={{ pageSize: 6, size: 'small' }}
-              size="middle"
-              rowSelection={{}}
-            />
-          </>
-        )}
-      </Card>
+      )}
     </div>
   );
 }
