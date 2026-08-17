@@ -253,9 +253,8 @@ function AISummaryPanel({ streamUrl }) {
   );
 }
 
-function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc }) {
+function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, searchScope, onSearchScopeChange }) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchScope, setSearchScope] = useState('all');
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState(null);
   const [searchTime, setSearchTime] = useState(null); // 搜索耗时(ms)
@@ -349,7 +348,7 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc }) {
         <div style={{ flex: 1, display: 'flex' }}>
           <Select
             value={searchScope}
-            onChange={setSearchScope}
+            onChange={onSearchScopeChange}
             size="large"
             style={{ width: 160, borderRadius: '8px 0 0 8px' }}
             options={[

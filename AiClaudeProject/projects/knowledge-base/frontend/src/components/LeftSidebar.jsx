@@ -1,97 +1,73 @@
 /**
  * LeftSidebar.jsx - 左侧导航栏
  *
- * 扁平导航分类：
- * 知识分类、全部知识、产品模块、业务模块、工单知识、部门知识、FAQ库、工单沉淀
+ * 可折叠侧栏 + 筛选联动：
+ * - 点击分类 → 更新搜索范围 + 高亮
+ * - 部门知识展开子分类（数智财务、免疫规划等）
+ * - 折叠按钮切换图标/文字模式
  */
 
-import React, { useState } from 'react';
-import { Typography } from 'antd';
-import { RightOutlined } from '@ant-design/icons';
-import { navCategories, deptSubCategories } from '../mock/data';
+import React from 'react';
+import { Menu, Button } from 'antd';
+import {
+  FolderOpenOutlined, AppstoreOutlined, ApartmentOutlined,
+  FileTextOutlined, TeamOutlined, QuestionCircleOutlined,
+  BugOutlined, MenuFoldOutlined, MenuUnfoldOutlined,
+} from '@ant-design/icons';
 
-const { Text } = Typography;
+const menuItems = [
+  { key: 'all', label: '全部知识', icon: <FolderOpenOutlined /> },
+  { key: 'product', label: '产品模块', icon: <AppstoreOutlined /> },
+  { key: 'business', label: '业务模块', icon: <ApartmentOutlined /> },
+  { key: 'ticket', label: '工单知识', icon: <FileTextOutlined /> },
+  {
+    key: 'dept', label: '部门知识', icon: <TeamOutlined />,
+    children: [
+      { key: 'szcw', label: '数智财务' },
+      { key: 'myp', label: '免疫规划' },
+      { key: 'da', label: '电子档案' },
+      { key: 'szh', label: '数字化支撑' },
+    ],
+  },
+  { key: 'faq', label: 'FAQ库', icon: <QuestionCircleOutlined /> },
+  { key: 'ticket_deposit', label: '工单沉淀', icon: <BugOutlined /> },
+];
 
-// Font Awesome 图标映射（用 unicode/emoji 简单模拟）
-const iconMap = {
-  FolderOpenOutlined: '🏠',
-  AppstoreOutlined: '📋',
-  ApartmentOutlined: '🔷',
-  FileTextOutlined: '🎫',
-  TeamOutlined: '👥',
-  QuestionCircleOutlined: '❓',
-  BugOutlined: '🗄️',
-};
-
-function LeftSidebar({ selectedNav, onNavChange }) {
-  const [activeNav, setActiveNav] = useState('dept');
-  const [activeSub, setActiveSub] = useState(null);
-
-  const handleNavClick = (key) => {
-    setActiveNav(key);
-    if (key !== 'dept') setActiveSub(null);
-    onNavChange && onNavChange(key);
-  };
-
-  const handleSubClick = (key) => {
-    setActiveSub(key);
+function LeftSidebar({ selectedNav, onNavChange, collapsed, onToggleCollapse }) {
+  const handleClick = ({ key }) => {
+    onNavChange(key);
   };
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: '12px 8px' }}>
-      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-        {navCategories.map(cat => {
-          const isActive = activeNav === cat.key;
-          const isDept = cat.key === 'dept';
-          return (
-            <li key={cat.key} style={{ marginBottom: 2 }}>
-              <div
-                onClick={() => handleNavClick(cat.key)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  padding: '10px 12px', borderRadius: 8, cursor: 'pointer',
-                  background: isActive ? 'rgba(13,148,136,0.08)' : 'transparent',
-                  color: isActive ? '#0D9488' : '#334155',
-                  fontWeight: isActive ? 600 : 400,
-                  transition: 'all 0.15s',
-                }}
-                onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = '#e2e8f0'; }}
-                onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
-              >
-                <span style={{ width: 24, textAlign: 'center', fontSize: 14 }}>{iconMap[cat.icon] || '📄'}</span>
-                <span style={{ flex: 1, fontSize: 14 }}>{cat.label}</span>
-                <span style={{ fontSize: 11, color: '#999' }}>{cat.count}</span>
-                <RightOutlined style={{ fontSize: 10, color: '#ccc' }} />
-              </div>
-              {/* 部门知识展开子分类 */}
-              {isDept && isActive && (
-                <ul style={{ listStyle: 'none', padding: '4px 0 4px 32px', margin: 0 }}>
-                  {deptSubCategories.map(sub => (
-                    <li
-                      key={sub.key}
-                      onClick={() => handleSubClick(sub.key)}
-                      style={{
-                        padding: '7px 12px', borderRadius: 6, cursor: 'pointer',
-                        fontSize: 13,
-                        background: activeSub === sub.key ? 'rgba(13,148,136,0.08)' : 'transparent',
-                        color: activeSub === sub.key ? '#0D9488' : '#475569',
-                        fontWeight: activeSub === sub.key ? 600 : 400,
-                        display: 'flex', justifyContent: 'space-between',
-                        marginBottom: 1,
-                      }}
-                      onMouseEnter={e => { if (activeSub !== sub.key) e.currentTarget.style.background = '#e2e8f0'; }}
-                      onMouseLeave={e => { if (activeSub !== sub.key) e.currentTarget.style.background = 'transparent'; }}
-                    >
-                      <span>{sub.label}</span>
-                      <span style={{ fontSize: 11, color: '#999' }}>{sub.count}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </li>
-          );
-        })}
-      </ul>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {/* 折叠按钮 */}
+      <div style={{
+        padding: collapsed ? '12px 0' : '12px 12px',
+        display: 'flex', justifyContent: collapsed ? 'center' : 'flex-end',
+        borderBottom: '1px solid #e2e8f0',
+      }}>
+        <Button
+          type="text"
+          icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+          onClick={onToggleCollapse}
+          style={{ color: '#64748B', fontSize: 16 }}
+        />
+      </div>
+
+      {/* 导航菜单 */}
+      <Menu
+        mode="inline"
+        inlineCollapsed={collapsed}
+        selectedKeys={[selectedNav]}
+        onClick={handleClick}
+        items={menuItems}
+        style={{
+          background: 'transparent',
+          borderRight: 'none',
+          flex: 1,
+          paddingTop: 4,
+        }}
+      />
     </div>
   );
 }

@@ -17,11 +17,25 @@ import './App.css';
 const { Header, Sider, Content } = Layout;
 
 function App() {
-  const [selectedNav, setSelectedNav] = useState('dept');
+  const [selectedNav, setSelectedNav] = useState('all');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // 搜索状态（提升到 App 层，供 CenterContent 和 RightPanel 联动）
   const [searchResults, setSearchResults] = useState(null);
   const [selectedDoc, setSelectedDoc] = useState(null); // 右侧面板选中的文档
+  const [searchScope, setSearchScope] = useState('all'); // 左侧栏联动搜索范围
+
+  // 左侧栏点击 → 更新筛选范围
+  const handleNavChange = (key) => {
+    setSelectedNav(key);
+    // 映射到搜索范围
+    const scopeMap = {
+      all: 'all', product: 'doc', business: 'doc',
+      ticket: 'doc', faq: 'faq', ticket_deposit: 'doc',
+      szcw: 'dept', myp: 'dept', da: 'dept', szh: 'dept',
+    };
+    setSearchScope(scopeMap[key] || 'all');
+  };
 
   // 点击 logo 回到首页
   const handleGoHome = () => {
@@ -59,8 +73,21 @@ function App() {
 
         <Layout style={{ flex: 1, overflow: 'hidden' }}>
           {/* ===== 左侧导航栏 ===== */}
-          <Sider width={240} style={{ background: '#f8fafa', borderRight: '1px solid #e2e8f0', overflow: 'hidden' }}>
-            <LeftSidebar selectedNav={selectedNav} onNavChange={setSelectedNav} />
+          <Sider
+            width={240}
+            collapsedWidth={60}
+            collapsible
+            collapsed={sidebarCollapsed}
+            onCollapse={setSidebarCollapsed}
+            trigger={null}
+            style={{ background: '#f8fafa', borderRight: '1px solid #e2e8f0', overflow: 'hidden' }}
+          >
+            <LeftSidebar
+              selectedNav={selectedNav}
+              onNavChange={handleNavChange}
+              collapsed={sidebarCollapsed}
+              onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+            />
           </Sider>
 
           {/* ===== 中间主面板 ===== */}
@@ -69,6 +96,8 @@ function App() {
               searchResults={searchResults}
               onSearchResultsChange={setSearchResults}
               onSelectDoc={setSelectedDoc}
+              searchScope={searchScope}
+              onSearchScopeChange={setSearchScope}
             />
           </Content>
 
