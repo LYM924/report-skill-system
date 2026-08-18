@@ -259,6 +259,8 @@ class SearchHandler(SimpleHTTPRequestHandler):
                 (PROJECT_DIR / d["path"]).stat().st_mtime
                 if (PROJECT_DIR / d["path"]).exists() else 0
             ), reverse=True)
+            # 过滤掉 FAQ 条目（FAQ 在 kb_docs 中用于搜索索引，不在文档列表展示）
+            all_docs = [d for d in all_docs if not d.get("title", "").startswith("[FAQ]")]
             if module:
                 all_docs = [d for d in all_docs if module in d.get("path", "")]
             total = len(all_docs)
