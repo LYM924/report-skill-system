@@ -1,10 +1,11 @@
 /**
  * API 接口层 - 对接 Python 搜索服务后端
  *
- * 所有接口调用 http://localhost:8765/api/...（通过 Vite 代理或直接访问）
+ * 一体化部署: 前端构建到 static/，Python 同时 serve 静态文件 + API
+ * 分离部署: 设置环境变量 VITE_API_BASE=http://backend:8765/api
  */
 
-const API_BASE = '/api';
+const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
 /**
  * 通用请求函数
