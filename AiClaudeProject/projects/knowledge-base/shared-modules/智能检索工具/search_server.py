@@ -356,6 +356,37 @@ tickets: []
             rebuild_engine()
 
             self._json({"ok": True, "faq_id": faq_id, "path": str(file_path.relative_to(PROJECT_DIR))})
+        elif parsed.path == "/api/faq/suggest":
+            """根据关键词推荐 FAQ 归属部门和模块"""
+            params = parse_qs(parsed.query)
+            title = params.get("title", [""])[0]
+            keywords = params.get("keywords", [""])[0]
+
+            text = title + " " + keywords
+            eng = get_engine()
+
+            from collections import Counter
+            dept_votes = Counter()
+            module_votes = Counter()
+
+            for kw in eng.keyword_map:
+                if kw in text:
+                    for entry in eng.keyword_map[kw]:
+                        if entry.get("dept"):
+                            dept_votes[entry["dept"]] += 1
+                        if entry.get("module"):
+                            module_votes[entry["module"]] += 1
+
+            # 默认值
+            best_dept = dept_votes.most_common(1)[0][0] if dept_votes else "数智财务组"
+            best_module = module_votes.most_common(1)[0][0] if module_votes else "浙里报"
+
+            self._json({
+                "dept": best_dept,
+                "module": best_module,
+                "dept_votes": dict(dept_votes.most_common(5)),
+                "module_votes": dict(module_votes.most_common(5)),
+            })
         elif parsed.path == "/api/faq/delete":
             """删除 FAQ"""
             params = parse_qs(parsed.query)
