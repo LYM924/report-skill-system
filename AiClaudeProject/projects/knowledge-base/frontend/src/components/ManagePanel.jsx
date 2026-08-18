@@ -101,16 +101,17 @@ function ManagePanel({ isDark }) {
                       <Button type="link" size="small" style={{ fontSize: 12, padding: 0, color: '#0D9488' }}
                         onClick={async (e) => {
                           e.stopPropagation();
+                          const answerText = record.answer || '待补充';
                           await saveFAQ({
                             title: record.question,
                             keywords: (record.keywords || []).join(','),
                             dept: '数智财务组',
                             sub_module: '浙里报',
                             module: '浙里报',
-                            content: `## 问题描述\n\n${record.question}\n\n## 解决方法\n\n待补充`,
+                            content: `## 问题描述\n\n${record.question}\n\n## 解决方法\n\n${answerText}`,
                             status: 'active',
                           });
-                          handleDeleteDraft(record.id, record.path);
+                          handleDeleteDraft(record.id);
                         }}
                       >发布</Button>
                       <Button type="link" size="small" danger style={{ fontSize: 12, padding: 0 }}

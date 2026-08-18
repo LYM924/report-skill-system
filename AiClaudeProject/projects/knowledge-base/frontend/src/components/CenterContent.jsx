@@ -46,6 +46,7 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
   const [searchTime, setSearchTime] = useState(null); // 搜索耗时(ms)
 
   const [quickActionMsg, setQuickActionMsg] = useState(null);
+  const [aiSummaryText, setAiSummaryText] = useState(''); // 当前 AI 总结文本
 
   const handleQuickAction = (key) => {
     if (key === 'ai_summary') {
@@ -84,6 +85,7 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
       drafts.unshift({
         id: Date.now(),
         question: searchQuery.trim(),
+        answer: aiSummaryText || '（AI 总结尚未生成，请等待总结完成后再沉淀）',
         keywords: searchResults?.tokens || [],
         results: searchResults?.results?.slice(0, 5) || [],
         createdAt: new Date().toISOString(),
@@ -316,6 +318,7 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
       {searchResults?.claude_stream_url && (
         <AISummaryPanel
           streamUrl={searchResults.claude_stream_url}
+          onSummaryText={setAiSummaryText}
         />
       )}
 

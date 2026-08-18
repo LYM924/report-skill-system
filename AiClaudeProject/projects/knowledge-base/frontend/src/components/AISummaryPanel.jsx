@@ -15,23 +15,27 @@ const { Text } = Typography;
 const BLINK_KEYFRAMES = <style>{`@keyframes blink { 50% { opacity: 0; } }`}</style>;
 
 /** AI 总结面板 */
-function AISummaryPanel({ streamUrl }) {
+function AISummaryPanel({ streamUrl, onSummaryText }) {
   const [summary, setSummary] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState(null);
   const [deepMode, setDeepMode] = useState(false);
   const abortRef = useRef(null);
-  const lastStreamUrlRef = useRef(null); // 防止 Tab 切换回来自动重触发
+  const lastStreamUrlRef = useRef(null);
+  const fullTextRef = useRef(''); // 累积完整文本，避免闭包问题 // 防止 Tab 切换回来自动重触发
 
   const startStream = useCallback((url) => {
+    fullTextRef.current = '';
     const abort = streamClaudeSummary(url, {
       onToken: (text) => {
+        fullTextRef.current += text;
         setSummary(prev => prev + text);
       },
       onComplete: () => {
         setStreaming(false);
         setDone(true);
+        if (onSummaryText) onSummaryText(fullTextRef.current);
       },
       onError: (err) => {
         setStreaming(false);
