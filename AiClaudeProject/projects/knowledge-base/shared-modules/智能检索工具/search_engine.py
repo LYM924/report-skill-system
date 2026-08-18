@@ -1967,8 +1967,14 @@ class SearchEngine:
     # -------- cache --------
 
     def save_cache(self):
-        """保存索引缓存"""
+        """保存索引缓存（含元信息用于过期检测）"""
         cache = {
+            "_meta": {
+                "kb_count": len(self.kb_docs),
+                "faq_count": len(self.faq_docs),
+                "report_count": len(self.report_docs),
+                "updated": __import__('datetime').datetime.now().isoformat(),
+            },
             "keyword_map": {k: v for k, v in self.keyword_map.items()},
             "module_map": self.module_map,
             "menu_map": {k: v for k, v in self.menu_map.items()},
