@@ -1966,9 +1966,18 @@ class SearchEngine:
 
     # -------- cache --------
 
+    def _dir_hash(self):
+        """计算所有源文件路径的哈希（用于检测文件增删/移动）"""
+        import hashlib
+        paths = []
+        for d in [KB_DIR, FAQ_DIR, REPORT_DIR]:
+            if d.exists():
+                for f in sorted(d.rglob("*.md")):
+                    paths.append(str(f.relative_to(PROJECT_DIR)))
+        return hashlib.md5("|".join(paths).encode()).hexdigest()
+
     def save_cache(self):
-        """保存索引缓存（含文件计数用于自动过期检测）"""
-        # 统计各目录的原始文件数（与 rglob 一致，用于 load_cache 过期检测）
+        """保存索引缓存（含文件路径哈希用于自动过期检测）"""
         _kb_raw = len(list(KB_DIR.rglob("*.md"))) if KB_DIR.exists() else 0
         _faq_raw = len([f for f in FAQ_DIR.rglob("*.md")
                        if f.name not in ("TEMPLATE.md", "INDEX.md")]) if FAQ_DIR.exists() else 0
@@ -1978,6 +1987,7 @@ class SearchEngine:
                 "kb_count": _kb_raw,
                 "faq_count": _faq_raw,
                 "report_count": _report_raw,
+                "path_hash": self._dir_hash(),
                 "updated": __import__('datetime').datetime.now().isoformat(),
             },
             "keyword_map": {k: v for k, v in self.keyword_map.items()},
@@ -2019,6 +2029,9 @@ class SearchEngine:
                 faq_count != meta.get("faq_count", -1) or
                 report_count != meta.get("report_count", -1)):
                 return False  # 文件数变化，缓存过期
+            # 路径哈希检查（检测文件移动/重命名，仅计数检查不够）
+            if meta.get("path_hash") and self._dir_hash() != meta["path_hash"]:
+                return False
 
         self.keyword_map = defaultdict(list, cache.get("keyword_map", {}))
         self.module_map = cache.get("module_map", {})
