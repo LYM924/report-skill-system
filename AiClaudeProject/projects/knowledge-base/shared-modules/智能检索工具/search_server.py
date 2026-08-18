@@ -227,7 +227,7 @@ class SearchHandler(SimpleHTTPRequestHandler):
                 "keywords": len(eng.keyword_map),
                 "modules": len(eng.module_map),
                 "menus": len(eng.menu_map),
-                "kb_docs": len(eng.kb_docs),
+                "kb_docs": len([d for d in eng.kb_docs if not d.get("title", "").startswith("[FAQ]")]),
                 "faq_docs": len(eng.faq_docs),
                 "report_docs": len(eng.report_docs),
                 "total_searches": SEARCH_COUNTER.get("total", 0),
@@ -238,9 +238,10 @@ class SearchHandler(SimpleHTTPRequestHandler):
         elif parsed.path == "/api/dashboard":
             """返回知识总览仪表盘数据（真实统计）"""
             eng = get_engine()
-            kb_count = len(eng.kb_docs)
             faq_count = len(eng.faq_docs)
             report_count = len(eng.report_docs)
+            # kb_docs 包含 FAQ 条目（用于搜索索引），统计时需排除
+            kb_count = len([d for d in eng.kb_docs if not d.get("title", "").startswith("[FAQ]")])
             total_docs = kb_count + faq_count + report_count
             self._json({
                 "totalDocs": total_docs,
