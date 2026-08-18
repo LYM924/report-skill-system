@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """产品知识库搜索服务 - 启动本地 Web 搜索界面"""
-import json, os, sys, logging
+import json, os, sys, logging, datetime
 from pathlib import Path
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from socketserver import ThreadingMixIn
@@ -65,12 +65,22 @@ class SearchHandler(SimpleHTTPRequestHandler):
             SEARCH_COUNTER["today"] = SEARCH_COUNTER.get("today", 0) + 1
             SEARCH_COUNTER["week"] = SEARCH_COUNTER.get("week", 0) + 1
 
+            # Track hotwords
+            if "hotwords" not in SEARCH_COUNTER:
+                SEARCH_COUNTER["hotwords"] = {}
+            SEARCH_COUNTER["hotwords"][query] = SEARCH_COUNTER["hotwords"].get(query, 0) + 1
+
+            # Track monthly searches
+            month_key = f"month_{datetime.datetime.now().month}"
+            SEARCH_COUNTER[month_key] = SEARCH_COUNTER.get(month_key, 0) + 1
+
             eng = get_engine()
 
             # 0. 先查 FAQ 缓存
             cached = eng.check_faq_cache(query)
             if cached:
                 SEARCH_COUNTER["faq_hits"] = SEARCH_COUNTER.get("faq_hits", 0) + 1
+                SEARCH_COUNTER[f"faq_month_{datetime.datetime.now().month}"] = SEARCH_COUNTER.get(f"faq_month_{datetime.datetime.now().month}", 0) + 1
                 result = {
                     "query": query,
                     "tokens": list(jieba.cut(query)),
@@ -285,6 +295,145 @@ class SearchHandler(SimpleHTTPRequestHandler):
                 self._json({"error": "请提供文档路径"})
                 return
             self._serve_document(doc_path)
+        elif parsed.path == "/api/faq/save":
+            """保存 FAQ 草稿或正式条目"""
+            params = parse_qs(parsed.query)
+            faq_id = params.get("id", [""])[0]
+            title = params.get("title", [""])[0]
+            keywords = params.get("keywords", [""])[0]
+            dept = params.get("dept", [""])[0]
+            sub_module = params.get("sub_module", [""])[0]
+            module = params.get("module", [""])[0]
+            content = params.get("content", [""])[0]
+            status = params.get("status", ["draft"])[0]
+
+            if not title or not dept:
+                self._json({"error": "title 和 dept 为必填参数"})
+                return
+
+            import urllib.parse
+            faq_dir = PROJECT_DIR / "projects/knowledge-base/FAQ知识库" / dept / sub_module if sub_module else PROJECT_DIR / "projects/knowledge-base/FAQ知识库" / dept
+            faq_dir.mkdir(parents=True, exist_ok=True)
+
+            if not faq_id:
+                faq_id = f"FAQ-{dept}-{sub_module}-{len(list(faq_dir.glob('*.md')))+1:03d}"
+
+            safe_title = title.replace("/", "-").replace("?", "").replace(":", "")
+            file_path = faq_dir / f"{safe_title}.md"
+
+            kw_list = [k.strip() for k in keywords.split(",") if k.strip()]
+            today = datetime.date.today().isoformat()
+
+            file_content = f"""---
+id: {faq_id}
+title: {title}
+keywords: {kw_list}
+module: {module}
+dept: {dept}
+sub_module: {sub_module}
+scene: ""
+status: {status}
+version_from: ""
+created: {today}
+reviewed: {today}
+related: []
+tickets: []
+---
+
+# {title}
+
+{content}
+"""
+            file_path.write_text(file_content, encoding="utf-8")
+
+            # 重建引擎以加载新FAQ
+            eng = get_engine()
+            eng._load_faq_knowledge()
+            eng.save_cache()
+
+            self._json({"ok": True, "faq_id": faq_id, "path": str(file_path.relative_to(PROJECT_DIR))})
+        elif parsed.path == "/api/faq/delete":
+            """删除 FAQ"""
+            params = parse_qs(parsed.query)
+            faq_path = params.get("path", [""])[0]
+            if not faq_path:
+                self._json({"error": "请提供 FAQ 路径"})
+                return
+            full_path = PROJECT_DIR / faq_path
+            if full_path.exists():
+                full_path.unlink()
+                eng = get_engine()
+                eng._load_faq_knowledge()
+                eng.save_cache()
+                self._json({"ok": True, "message": "已删除"})
+            else:
+                self._json({"error": "FAQ 文件不存在"})
+        elif parsed.path == "/api/chat":
+            """AI 对话模式（不依赖搜索的纯聊天）"""
+            params = parse_qs(parsed.query)
+            message = params.get("message", [""])[0]
+
+            if not message:
+                self._json({"error": "请提供 message 参数"})
+                return
+
+            api_key = os.environ.get("ANTHROPIC_AUTH_TOKEN", "") or os.environ.get("ANTHROPIC_API_KEY", "")
+            if not api_key:
+                self._sse_start()
+                self._sse_send({"error": "未配置 ANTHROPIC_AUTH_TOKEN 或 ANTHROPIC_API_KEY 环境变量"})
+                self._sse_done()
+                return
+
+            context = {
+                "system": "你是智能知识库AI助手，帮助用户解答产品相关问题。回答要简洁、准确。",
+                "messages": [{"role": "user", "content": message}],
+            }
+            SEARCH_COUNTER["ai_summaries"] = SEARCH_COUNTER.get("ai_summaries", 0) + 1
+            self._handle_claude_stream(message, context, api_key)
+            return
+        elif parsed.path == "/api/trends":
+            """返回搜索趋势数据（最近6个月）"""
+            self._json({
+                "trends": [
+                    {"month": "3月", "value": SEARCH_COUNTER.get("month_3", 0)},
+                    {"month": "4月", "value": SEARCH_COUNTER.get("month_4", 0)},
+                    {"month": "5月", "value": SEARCH_COUNTER.get("month_5", 0)},
+                    {"month": "6月", "value": SEARCH_COUNTER.get("month_6", 0)},
+                    {"month": "7月", "value": SEARCH_COUNTER.get("month_7", 0)},
+                    {"month": "8月", "value": SEARCH_COUNTER.get("month_8", 0)},
+                ],
+                "faqTrends": [
+                    {"month": "3月", "value": SEARCH_COUNTER.get("faq_month_3", 0)},
+                    {"month": "4月", "value": SEARCH_COUNTER.get("faq_month_4", 0)},
+                    {"month": "5月", "value": SEARCH_COUNTER.get("faq_month_5", 0)},
+                    {"month": "6月", "value": SEARCH_COUNTER.get("faq_month_6", 0)},
+                    {"month": "7月", "value": SEARCH_COUNTER.get("faq_month_7", 0)},
+                    {"month": "8月", "value": SEARCH_COUNTER.get("faq_month_8", 0)},
+                ],
+            })
+        elif parsed.path == "/api/hotwords":
+            """返回搜索热词 Top10"""
+            hot = SEARCH_COUNTER.get("hotwords", {})
+            sorted_hot = sorted(hot.items(), key=lambda x: x[1], reverse=True)[:10]
+            self._json({"hotwords": [{"word": w, "count": c} for w, c in sorted_hot]})
+        elif parsed.path == "/api/recent":
+            """返回最近更新的文档"""
+            eng = get_engine()
+            docs_with_time = []
+            for doc in eng.kb_docs:
+                p = PROJECT_DIR / doc["path"]
+                if p.exists():
+                    docs_with_time.append((p.stat().st_mtime, doc))
+            docs_with_time.sort(reverse=True)
+            recent = []
+            for mtime, doc in docs_with_time[:6]:
+                recent.append({
+                    "name": doc.get("title", doc["path"].split("/")[-1]),
+                    "dept": doc.get("dept", ""),
+                    "updated": datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M"),
+                    "path": doc["path"],
+                })
+            self._json({"recent": recent})
         else:
             super().do_GET()
 
