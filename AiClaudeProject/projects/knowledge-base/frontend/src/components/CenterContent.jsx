@@ -360,7 +360,7 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
           />
           <div style={{ flex: 1, position: 'relative' }}>
             <Input
-              placeholder="输入关键词搜索知识库..."
+              placeholder="输入关键词搜索知识库... (Ctrl+K)"
               size="large"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}

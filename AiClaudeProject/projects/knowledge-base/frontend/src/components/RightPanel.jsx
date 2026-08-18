@@ -14,7 +14,7 @@ import {
   FolderOutlined, TagOutlined,
 } from '@ant-design/icons';
 import { mockFAQs, trendData, recentUpdates } from '../mock/data';
-import { getFAQs, getDocumentDetail } from '../api';
+import { getFAQs, getFAQDetail, getDocumentDetail } from '../api';
 
 const { Text, Paragraph } = Typography;
 
@@ -166,6 +166,8 @@ function RightPanel({ selectedDoc, onClearDoc }) {
   const [faqs, setFaqs] = useState([]);
   const [docDetail, setDocDetail] = useState(null);
   const [docLoading, setDocLoading] = useState(false);
+  const [selectedFaq, setSelectedFaq] = useState(null); // FAQ 详情
+  const [faqLoading, setFaqLoading] = useState(false);
 
   useEffect(() => {
     getFAQs().then(data => {
@@ -195,6 +197,55 @@ function RightPanel({ selectedDoc, onClearDoc }) {
       setDocLoading(false);
     });
   }, [selectedDoc]);
+
+  // 点击 FAQ 卡片
+  const handleFaqClick = async (faq) => {
+    setFaqLoading(true);
+    setSelectedFaq(faq);
+    const detail = await getFAQDetail(faq.id);
+    if (detail) {
+      setSelectedFaq(prev => ({ ...prev, ...detail }));
+    }
+    setFaqLoading(false);
+  };
+
+  // ===== FAQ 详情视图 =====
+  if (selectedFaq && !selectedDoc) {
+    return (
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: 16 }}>
+        <Button
+          type="text"
+          icon={<ArrowLeftOutlined />}
+          onClick={() => setSelectedFaq(null)}
+          style={{ alignSelf: 'flex-start', marginBottom: 12, padding: '4px 8px', fontSize: 13, color: '#0D9488' }}
+        >
+          返回
+        </Button>
+
+        {faqLoading ? (
+          <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
+        ) : (
+          <div style={{ flex: 1, overflow: 'auto' }}>
+            <Text strong style={{ fontSize: 16, display: 'block', marginBottom: 8, color: '#0D9488' }}>
+              {selectedFaq.title || 'FAQ 详情'}
+            </Text>
+            <div style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {selectedFaq.keywords?.map(k => (
+                <Tag key={k} style={{ fontSize: 11, borderRadius: 4, background: 'rgba(13,148,136,0.08)', color: '#0D9488', border: 'none' }}>
+                  {k}
+                </Tag>
+              ))}
+              {selectedFaq.dept && (
+                <Tag style={{ fontSize: 11, borderRadius: 4 }}>{selectedFaq.dept}</Tag>
+              )}
+            </div>
+            <Divider style={{ margin: '12px 0' }} />
+            <SimpleMarkdown content={selectedFaq.content || selectedFaq.answer} />
+          </div>
+        )}
+      </div>
+    );
+  }
 
   // ===== 文档详情视图 =====
   if (selectedDoc) {
@@ -287,10 +338,14 @@ function RightPanel({ selectedDoc, onClearDoc }) {
         {displayFAQs.slice(0, 3).map(faq => (
           <div
             key={faq.id}
+            onClick={() => handleFaqClick(faq)}
             style={{
               marginBottom: 6, border: '1px solid #f0f0f0', borderRadius: 8,
               padding: '8px 10px', cursor: 'pointer', background: '#fff',
+              transition: 'box-shadow 0.15s',
             }}
+            onMouseEnter={e => e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.06)'}
+            onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
               <Text style={{ fontSize: 12, lineHeight: 1.5 }}>{faq.title}</Text>

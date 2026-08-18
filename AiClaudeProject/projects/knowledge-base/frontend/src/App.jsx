@@ -6,7 +6,8 @@
  */
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Layout, ConfigProvider } from 'antd';
+import { Layout, ConfigProvider, Modal } from 'antd';
+import { SearchOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import zhCN from 'antd/locale/zh_CN';
 import TopNav from './components/TopNav';
 import LeftSidebar from './components/LeftSidebar';
@@ -28,6 +29,28 @@ function App() {
   // 右侧面板可拖拽调整宽度
   const [rightWidth, setRightWidth] = useState(320);
   const resizing = useRef(false);
+
+  // 快捷键面板
+  const [shortcutsVisible, setShortcutsVisible] = useState(false);
+
+  // 全局键盘快捷键
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Ctrl/Cmd + K: 聚焦搜索框
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        const input = document.querySelector('input[placeholder*="搜索"]');
+        if (input) input.focus();
+      }
+      // ?: 显示快捷键面板
+      if (e.key === '?' && !e.ctrlKey && !e.metaKey && document.activeElement?.tagName !== 'INPUT') {
+        e.preventDefault();
+        setShortcutsVisible(true);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const handleResizeStart = useCallback((e) => {
     e.preventDefault();
@@ -154,6 +177,33 @@ function App() {
           </div>
         </Layout>
       </Layout>
+      {/* 快捷键面板 */}
+      <Modal
+        title="键盘快捷键"
+        open={shortcutsVisible}
+        onCancel={() => setShortcutsVisible(false)}
+        footer={null}
+        width={360}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 13, color: '#334155' }}>聚焦搜索框</span>
+            <kbd style={{ background: '#f1f5f9', padding: '2px 8px', borderRadius: 4, fontSize: 12, fontFamily: 'monospace', border: '1px solid #e2e8f0' }}>Ctrl + K</kbd>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 13, color: '#334155' }}>清除搜索结果</span>
+            <kbd style={{ background: '#f1f5f9', padding: '2px 8px', borderRadius: 4, fontSize: 12, fontFamily: 'monospace', border: '1px solid #e2e8f0' }}>Esc</kbd>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 13, color: '#334155' }}>显示快捷键</span>
+            <kbd style={{ background: '#f1f5f9', padding: '2px 8px', borderRadius: 4, fontSize: 12, fontFamily: 'monospace', border: '1px solid #e2e8f0' }}>?</kbd>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 13, color: '#334155' }}>搜索</span>
+            <kbd style={{ background: '#f1f5f9', padding: '2px 8px', borderRadius: 4, fontSize: 12, fontFamily: 'monospace', border: '1px solid #e2e8f0' }}>Enter</kbd>
+          </div>
+        </div>
+      </Modal>
     </ConfigProvider>
   );
 }
