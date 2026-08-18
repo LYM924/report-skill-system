@@ -43,6 +43,18 @@ def get_engine():
             engine.save_cache()
     return engine
 
+def rebuild_engine():
+    """重建引擎（FAQ增删后调用，避免重复追加）"""
+    global engine
+    engine = SearchEngine()
+    engine._load_synonyms()
+    engine._load_keyword_index()
+    engine._load_module_files()
+    engine._load_knowledge_base()
+    engine._load_faq_knowledge()
+    engine._load_report_data()
+    engine.save_cache()
+
 
 class SearchHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
@@ -131,15 +143,7 @@ class SearchHandler(SimpleHTTPRequestHandler):
 
             self._json(result)
         elif parsed.path == "/api/rebuild":
-            global engine
-            engine = SearchEngine()
-            engine._load_synonyms()
-            engine._load_keyword_index()
-            engine._load_module_files()
-            engine._load_knowledge_base()
-            engine._load_faq_knowledge()
-            engine._load_report_data()
-            engine.save_cache()
+            rebuild_engine()
             self._json({"ok": True, "message": "索引已重建"})
         elif parsed.path == "/api/faq":
             params = parse_qs(parsed.query)
@@ -347,10 +351,8 @@ tickets: []
 """
             file_path.write_text(file_content, encoding="utf-8")
 
-            # 重建引擎以加载新FAQ
-            eng = get_engine()
-            eng._load_faq_knowledge()
-            eng.save_cache()
+            # 重建引擎全部索引（避免重复追加）
+            rebuild_engine()
 
             self._json({"ok": True, "faq_id": faq_id, "path": str(file_path.relative_to(PROJECT_DIR))})
         elif parsed.path == "/api/faq/delete":
@@ -363,9 +365,7 @@ tickets: []
             full_path = PROJECT_DIR / faq_path
             if full_path.exists():
                 full_path.unlink()
-                eng = get_engine()
-                eng._load_faq_knowledge()
-                eng.save_cache()
+                rebuild_engine()
                 self._json({"ok": True, "message": "已删除"})
             else:
                 self._json({"error": "FAQ 文件不存在"})
