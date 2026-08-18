@@ -178,7 +178,7 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
   const keywords = searchResults?.tokens || [];
 
   if (topTab === 'stats') return <StatsDashboard isDark={isDark} />;
-  if (topTab === 'ai') return <ChatMode isDark={isDark} onSearchResultsChange={onSearchResultsChange} />;
+  if (topTab === 'ai') return <ChatMode isDark={isDark} />;
   if (topTab === 'manage') return <ManagePanel isDark={isDark} />;
 
   return (
