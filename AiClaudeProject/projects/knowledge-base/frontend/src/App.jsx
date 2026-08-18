@@ -181,7 +181,7 @@ function App() {
           </Content>
 
           {/* ===== 右侧信息看板 ===== */}
-          <div style={{ position: 'relative', display: 'flex', flexShrink: 0 }}>
+          <div style={{ position: 'relative', flexShrink: 0, width: rightWidth }}>
             {/* 拖拽手柄 */}
             <div
               onMouseDown={handleResizeStart}
@@ -194,12 +194,12 @@ function App() {
               onMouseEnter={e => e.currentTarget.style.background = 'rgba(13,148,136,0.15)'}
               onMouseLeave={e => { if (!resizing.current) e.currentTarget.style.background = 'transparent'; }}
             />
-            <Sider width={rightWidth} style={{ background: '#fff', borderLeft: '1px solid #e2e8f0', overflow: 'hidden' }}>
+            <div style={{ width: '100%', height: '100%', background: '#fff', borderLeft: '1px solid #e2e8f0', overflow: 'hidden' }}>
               <RightPanel
                 selectedDoc={selectedDoc}
                 onClearDoc={() => setSelectedDoc(null)}
               />
-            </Sider>
+            </div>
           </div>
         </Layout>
       </Layout>

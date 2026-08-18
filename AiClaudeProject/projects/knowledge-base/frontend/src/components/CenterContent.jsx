@@ -342,7 +342,7 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
   const keywords = searchResults?.tokens || [];
 
   return (
-    <div style={{ maxWidth: 960 }}>
+    <div style={{ width: '100%' }}>
       {/* ===== 1. 搜索栏 ===== */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
         <div style={{ flex: 1, display: 'flex' }}>
