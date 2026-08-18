@@ -271,7 +271,6 @@ class SearchHandler(SimpleHTTPRequestHandler):
                 doc_path = PROJECT_DIR / doc["path"]
                 updated = "2026-08-10"
                 if doc_path.exists():
-                    import datetime
                     mtime = doc_path.stat().st_mtime
                     updated = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
                 docs.append({
