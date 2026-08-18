@@ -17585,6 +17585,166 @@
       "content_sample": "---\nid: FAQ-DZ-DZ-001\ntitle: 电子档案归档后无法检索\nkeywords: ['电子档案', '归档', '检索', '找不到']\nmodule: 电子档案\ndept: 电子档案组\nsub_module: 电子档案\nscene: 档案管理\nstatus: active\nversion_from: \"2025-Q2\"\ncreated: 2026-08-18\nreviewed: 2026-08-18\nrelated: []\ntickets: []\n---\n\n# 电子档案归档后无法检索\n\n## 问题描述\n\n电子档案归档后在系统中检索不到？\n\n## 原因分析\n\n1. 归档索引未及时更新\n2. 检索关键词不匹配\n3. 档案权限限制\n\n## 解决方法\n\n1. 等待索引更新（通常5分钟内完成）\n2. 尝试用档案编号或文件名检索\n3. 检查档案权限设置，确认有查看权限\n\n## 排查要点\n\n- [ ] 索引是否已更新\n- [ ] 检索关键词是否准确\n- [ ] 是否有档案查看权限\n\n## 关联知识\n\n- 查看相关产品知识库文档\n"
     }
   ],
+  "faq_docs": [
+    {
+      "path": "projects/knowledge-base/FAQ知识库/免疫规划组/免疫规划/接种记录同步延迟.md",
+      "faq_id": "FAQ-YM-YM-002",
+      "title": "接种记录同步延迟",
+      "keywords": [
+        "接种",
+        "同步",
+        "延迟",
+        "省平台"
+      ],
+      "dept": "免疫规划组",
+      "sub_module": "免疫规划",
+      "content_sample": "---\nid: FAQ-YM-YM-002\ntitle: 接种记录同步延迟\nkeywords: ['接种', '同步', '延迟', '省平台']\nmodule: 预防接种\ndept: 免疫规划组\nsub_module: 免疫规划\nscene: 预防接种\nstatus: active\nversion_from: \"2025-Q2\"\ncreated: 2026-08-18\nreviewed: 2026-08-18\nrelated: ['FAQ-YM-YM-001']\ntickets: []\n---\n\n# 接种记录同步延迟\n\n## 问题描述\n\n接种记录提交后，数据同步到省平台延迟超过30分钟？\n\n## 原因分析\n\n1. 同步队列积压\n2. 省平台接口响应慢\n3. 网络波动\n\n## 解决方法\n\n1. 检查同步队列状态\n2. 如队列积压严重，联系运维扩容\n3. 等待自动重试，通常30分钟内恢复\n\n## 排查要点\n\n- [ ] 同步队列是否积压\n- [ ] 省平台是否正常\n- [ ] 网络是否稳定\n\n## 关联知识\n\n- 查看相关产品知识库文档\n"
+    },
+    {
+      "path": "projects/knowledge-base/FAQ知识库/免疫规划组/免疫规划/接种记录无法保存.md",
+      "faq_id": "FAQ-YM-YM-001",
+      "title": "接种记录无法保存",
+      "keywords": [
+        "接种",
+        "记录",
+        "保存",
+        "失败"
+      ],
+      "dept": "免疫规划组",
+      "sub_module": "免疫规划",
+      "content_sample": "---\nid: FAQ-YM-YM-001\ntitle: 接种记录无法保存\nkeywords: ['接种', '记录', '保存', '失败']\nmodule: 预防接种\ndept: 免疫规划组\nsub_module: 免疫规划\nscene: 预防接种\nstatus: active\nversion_from: \"2025-Q2\"\ncreated: 2026-08-18\nreviewed: 2026-08-18\nrelated: []\ntickets: []\n---\n\n# 接种记录无法保存\n\n## 问题描述\n\n预防接种记录提交后保存失败？\n\n## 原因分析\n\n1. 接种人信息不完整\n2. 疫苗批号错误\n3. 接种日期不在有效期内\n\n## 解决方法\n\n1. 检查接种人信息是否完整（姓名、身份证号等）\n2. 核对疫苗批号是否正确\n3. 确认接种日期在疫苗有效期内\n4. 如仍失败，检查网络连接后重试\n\n## 排查要点\n\n- [ ] 接种人信息是否完整\n- [ ] 疫苗批号是否正确\n- [ ] 接种日期是否在有效期内\n\n## 关联知识\n\n- 查看相关产品知识库文档\n"
+    },
+    {
+      "path": "projects/knowledge-base/FAQ知识库/免疫规划组/免疫规划/疫苗库存与实际不符.md",
+      "faq_id": "FAQ-YM-YM-003",
+      "title": "疫苗库存与实际不符",
+      "keywords": [
+        "疫苗",
+        "库存",
+        "盘点",
+        "不符"
+      ],
+      "dept": "免疫规划组",
+      "sub_module": "免疫规划",
+      "content_sample": "---\nid: FAQ-YM-YM-003\ntitle: 疫苗库存与实际不符\nkeywords: ['疫苗', '库存', '盘点', '不符']\nmodule: 疫苗馆\ndept: 免疫规划组\nsub_module: 免疫规划\nscene: 疫苗管理\nstatus: active\nversion_from: \"2025-Q2\"\ncreated: 2026-08-18\nreviewed: 2026-08-18\nrelated: []\ntickets: []\n---\n\n# 疫苗库存与实际不符\n\n## 问题描述\n\n疫苗馆库存数据与实际库存不一致？\n\n## 原因分析\n\n1. 入库/出库记录未及时更新\n2. 疫苗报损未录入系统\n3. 数据同步延迟\n\n## 解决方法\n\n1. 进行库存盘点，核对系统记录与实际库存\n2. 补录遗漏的入库/出库/报损记录\n3. 联系管理员进行库存校正\n\n## 排查要点\n\n- [ ] 最近入库记录是否完整\n- [ ] 最近出库记录是否完整\n- [ ] 报损记录是否已录入\n\n## 关联知识\n\n- 查看相关产品知识库文档\n"
+    },
+    {
+      "path": "projects/knowledge-base/FAQ知识库/数字化支撑组/数字化支撑/发票平台开票失败.md",
+      "faq_id": "FAQ-SZH-SZH-002",
+      "title": "发票平台开票失败",
+      "keywords": [
+        "发票",
+        "开票",
+        "失败",
+        "发票平台"
+      ],
+      "dept": "数字化支撑组",
+      "sub_module": "数字化支撑",
+      "content_sample": "---\nid: FAQ-SZH-SZH-002\ntitle: 发票平台开票失败\nkeywords: ['发票', '开票', '失败', '发票平台']\nmodule: 发票平台\ndept: 数字化支撑组\nsub_module: 数字化支撑\nscene: 发票管理\nstatus: active\nversion_from: \"2025-Q2\"\ncreated: 2026-08-18\nreviewed: 2026-08-18\nrelated: []\ntickets: []\n---\n\n# 发票平台开票失败\n\n## 问题描述\n\n发票平台开具发票时提示失败？\n\n## 原因分析\n\n1. 开票信息不完整\n2. 税号/抬头信息错误\n3. 发票库存不足\n\n## 解决方法\n\n1. 检查开票信息是否完整（抬头、税号、金额等）\n2. 核对税号和抬头信息是否正确\n3. 确认发票库存是否充足，如不足联系管理员领取\n\n## 排查要点\n\n- [ ] 开票信息是否完整\n- [ ] 税号/抬头是否正确\n- [ ] 发票库存是否充足\n\n## 关联知识\n\n- 查看相关产品知识库文档\n"
+    },
+    {
+      "path": "projects/knowledge-base/FAQ知识库/数字化支撑组/数字化支撑/收费平台支付失败.md",
+      "faq_id": "FAQ-SZH-SZH-001",
+      "title": "收费平台支付失败",
+      "keywords": [
+        "收费",
+        "支付",
+        "失败",
+        "收费平台"
+      ],
+      "dept": "数字化支撑组",
+      "sub_module": "数字化支撑",
+      "content_sample": "---\nid: FAQ-SZH-SZH-001\ntitle: 收费平台支付失败\nkeywords: ['收费', '支付', '失败', '收费平台']\nmodule: 收费平台\ndept: 数字化支撑组\nsub_module: 数字化支撑\nscene: 收费管理\nstatus: active\nversion_from: \"2025-Q2\"\ncreated: 2026-08-18\nreviewed: 2026-08-18\nrelated: []\ntickets: []\n---\n\n# 收费平台支付失败\n\n## 问题描述\n\n收费平台支付时提示失败？\n\n## 原因分析\n\n1. 支付通道异常\n2. 账户余额不足\n3. 支付限额超限\n\n## 解决方法\n\n1. 检查支付通道是否正常（微信/支付宝/银行）\n2. 确认账户余额充足\n3. 检查是否超过单笔/单日支付限额\n4. 如仍失败，联系收费平台管理员\n\n## 排查要点\n\n- [ ] 支付通道是否正常\n- [ ] 账户余额是否充足\n- [ ] 是否超过支付限额\n\n## 关联知识\n\n- 查看相关产品知识库文档\n"
+    },
+    {
+      "path": "projects/knowledge-base/FAQ知识库/数智财务组/徽报账/合同审批流程如何配置.md",
+      "faq_id": "FAQ-SZ-ZLB-005",
+      "title": "合同审批流程如何配置",
+      "keywords": [
+        "合同",
+        "审批",
+        "流程",
+        "配置"
+      ],
+      "dept": "数智财务组",
+      "sub_module": "徽报账",
+      "content_sample": "---\nid: FAQ-SZ-ZLB-005\ntitle: 合同审批流程如何配置\nkeywords: ['合同', '审批', '流程', '配置']\nmodule: 合同中心\ndept: 数智财务组\nsub_module: 徽报账\nscene: 合同管理\nstatus: active\nversion_from: \"2025-Q2\"\ncreated: 2026-08-18\nreviewed: 2026-08-18\nrelated: []\ntickets: []\n---\n\n# 合同审批流程如何配置\n\n## 问题描述\n\n合同审批流程在哪里配置？\n\n## 原因分析\n\n合同审批流程需要在运营后台配置，支持按金额和类型设置不同审批层级\n\n## 解决方法\n\n1. 登录运营后台\n2. 进入流程管理→合同审批流程\n3. 按合同金额、类型设置不同审批层级\n4. 保存后生效\n\n## 排查要点\n\n- [ ] 是否有运营后台权限\n- [ ] 合同金额层级是否正确\n- [ ] 审批人是否已配置\n\n## 关联知识\n\n- 查看相关产品知识库文档\n"
+    },
+    {
+      "path": "projects/knowledge-base/FAQ知识库/数智财务组/浙里报/公务出行报销单选不到申请单.md",
+      "faq_id": "FAQ-SZ-ZLB-001",
+      "title": "公务出行报销单选不到申请单",
+      "keywords": [
+        "报销单",
+        "申请单",
+        "公务出行",
+        "差旅",
+        "无需报销",
+        "关联单据",
+        "选不到",
+        "找不到"
+      ],
+      "dept": "数智财务组",
+      "sub_module": "浙里报",
+      "content_sample": "---\nid: FAQ-SZ-ZLB-001\ntitle: 公务出行报销单选不到申请单\nkeywords: [报销单, 申请单, 公务出行, 差旅, 无需报销, 关联单据, 选不到, 找不到]\nmodule: 浙里报\ndept: 数智财务组\nsub_module: 浙里报\nscene: 公务出行\nstatus: active\nversion_from: \"2025-Q2\"\ncreated: 2026-08-12\nreviewed: 2026-08-12\nrelated: []\ntickets: []\n---\n\n# 公务出行报销单选不到申请单\n\n## 问题描述\n\n在浙里报中创建公务出行（差旅）报销单时，关联申请单的选择列表中找不到目标申请单。\n\n## 原因分析\n\n共 7 种可能原因，按常见程度排列：\n\n| # | 原因 | 说明 |\n|---|------|------|\n| 1 | 申请单未审批通过 | 申请单必须处于「审批通过」状态才能被报销单关联 |\n| 2 | 申请单已被关联使用 | 固定场景的申请单仅可被关联一次，已被其他报销单关联后不再显示 |\n| 3 | 场景类型不匹配 | 公务出行报销单只能关联公务出行申请单，不能跨场景 |\n| 4 | 申请单金额已被用完 | 申请单预算金额已被之前报销单全部占用 |\n| 5 | 经办人不一致 | 申请单与报销单的经办人需匹配或有相应权限 |\n| 6 | 关账期间限制 | 财务关账期间可能限制报销单创建或关联 |\n| 7 | 申请单被标记\"无需报销\" | 经办人标记后不再出现在选择列表（详见下方） |\n\n## 解决方法\n\n### 第 1-6 条：常规排查\n\n1. 确认申请单状态是否为「审批通过」\n2. 确认申请单是否已被其他报销单关联\n3. 确认申请单和报销单场景类型一致\n4. 确认申请单预算金额未被用完\n5. 确认经办人权限匹配\n6. 确认不在关账期间\n\n### 第 7 条：申请单被标记\"无需报销\"\n\n公务出行申请单审批完成后，如果不需要报销，经办人可通过以下两种方式标记\"无需报销\"：\n\n**方式一：从已完成列表操作**\n1. 进入「我的单据」→「已完成」\n2. 找到目标申请单\n3. 点击「更多操作」→「无需报销」\n\n**方式二：从报销单创建页面操作**\n1. 创建报销单 → 关联申请单时\n2. 在申请单操作模块点击「无需报销」\n\n标记后，该申请单将**不再出现在创建报销单时的申请单选择列表中**。如果误操作，需联系管理员或运营同学撤销。\n\n## 排查要点\n\n1. 优先确认申请单是否在「已完成」列表中\n2. 检查是否被标记过\"无需报销\"（查看操作记录）\n3. 确认申请单状态和关联状态\n\n## 关联知识\n\n- 浙里报 2025-12 版本迭代：固定场景仅支持关联申请单类型，且仅可关联一次\n- 浙里报 2026-02 版本迭代：公务出行单据附件自定义命名"
+    },
+    {
+      "path": "projects/knowledge-base/FAQ知识库/数智财务组/浙里报/发票上传后无法识别.md",
+      "faq_id": "FAQ-SZ-ZLB-004",
+      "title": "发票上传后无法识别",
+      "keywords": [
+        "发票",
+        "上传",
+        "识别",
+        "OCR"
+      ],
+      "dept": "数智财务组",
+      "sub_module": "浙里报",
+      "content_sample": "---\nid: FAQ-SZ-ZLB-004\ntitle: 发票上传后无法识别\nkeywords: ['发票', '上传', '识别', 'OCR']\nmodule: 票据管理\ndept: 数智财务组\nsub_module: 浙里报\nscene: 票据管理\nstatus: active\nversion_from: \"2025-Q2\"\ncreated: 2026-08-18\nreviewed: 2026-08-18\nrelated: []\ntickets: []\n---\n\n# 发票上传后无法识别\n\n## 问题描述\n\n上传发票后系统识别不了怎么办？\n\n## 原因分析\n\n1. 发票图片清晰度不足\n2. 发票号码、金额被遮挡\n3. OCR服务异常\n\n## 解决方法\n\n1. 检查发票图片清晰度，确保发票号码、金额清晰可辨\n2. 如OCR识别失败，可手动录入发票信息\n3. 重新上传清晰图片\n\n## 排查要点\n\n- [ ] 发票图片是否清晰\n- [ ] 发票号码是否可见\n- [ ] 手动录入是否成功\n\n## 关联知识\n\n- 查看相关产品知识库文档\n"
+    },
+    {
+      "path": "projects/knowledge-base/FAQ知识库/数智财务组/浙里报/报销单提交后审批流程卡住.md",
+      "faq_id": "FAQ-SZ-ZLB-002",
+      "title": "报销单提交后审批流程卡住",
+      "keywords": [
+        "报销单",
+        "审批",
+        "流程",
+        "卡住"
+      ],
+      "dept": "数智财务组",
+      "sub_module": "浙里报",
+      "content_sample": "---\nid: FAQ-SZ-ZLB-002\ntitle: 报销单提交后审批流程卡住\nkeywords: ['报销单', '审批', '流程', '卡住']\nmodule: 浙里报\ndept: 数智财务组\nsub_module: 浙里报\nscene: 报销审批\nstatus: active\nversion_from: \"2025-Q2\"\ncreated: 2026-08-18\nreviewed: 2026-08-18\nrelated: ['FAQ-SZ-ZLB-001']\ntickets: []\n---\n\n# 报销单提交后审批流程卡住\n\n## 问题描述\n\n报销单提交后审批流程一直不动怎么办？\n\n## 原因分析\n\n1. 审批人休假未设置代理\n2. 审批流程配置错误\n3. 审批节点异常跳过\n\n## 解决方法\n\n1. 检查审批人是否在职、是否有代理审批人设置\n2. 在运营后台→流程管理中查看审批流程配置\n3. 联系运营在后台查看审批流程日志，确认是否有异常\n\n## 排查要点\n\n- [ ] 审批人是否在职\n- [ ] 是否设置了代理审批人\n- [ ] 审批流程配置是否正确\n\n## 关联知识\n\n- 查看相关产品知识库文档\n"
+    },
+    {
+      "path": "projects/knowledge-base/FAQ知识库/数智财务组/浙里报/预算指标同步失败.md",
+      "faq_id": "FAQ-SZ-ZLB-003",
+      "title": "预算指标同步失败",
+      "keywords": [
+        "预算",
+        "指标",
+        "同步",
+        "失败"
+      ],
+      "dept": "数智财务组",
+      "sub_module": "浙里报",
+      "content_sample": "---\nid: FAQ-SZ-ZLB-003\ntitle: 预算指标同步失败\nkeywords: ['预算', '指标', '同步', '失败']\nmodule: 预算中心\ndept: 数智财务组\nsub_module: 浙里报\nscene: 预算管理\nstatus: active\nversion_from: \"2025-Q2\"\ncreated: 2026-08-18\nreviewed: 2026-08-18\nrelated: []\ntickets: []\n---\n\n# 预算指标同步失败\n\n## 问题描述\n\n财政指标同步失败怎么处理？\n\n## 原因分析\n\n1. 指标来源系统异常\n2. 指标编码不匹配\n3. 同步接口超时\n\n## 解决方法\n\n1. 先确认指标来源系统是否正常\n2. 检查浙里报指标配置是否正确\n3. 常见原因为指标编码不匹配或同步接口超时，可手动触发同步\n\n## 排查要点\n\n- [ ] 指标来源系统是否正常\n- [ ] 指标编码是否匹配\n- [ ] 同步日志是否有超时记录\n\n## 关联知识\n\n- 查看相关产品知识库文档\n"
+    },
+    {
+      "path": "projects/knowledge-base/FAQ知识库/电子档案组/电子档案/电子档案归档后无法检索.md",
+      "faq_id": "FAQ-DZ-DZ-001",
+      "title": "电子档案归档后无法检索",
+      "keywords": [
+        "电子档案",
+        "归档",
+        "检索",
+        "找不到"
+      ],
+      "dept": "电子档案组",
+      "sub_module": "电子档案",
+      "content_sample": "---\nid: FAQ-DZ-DZ-001\ntitle: 电子档案归档后无法检索\nkeywords: ['电子档案', '归档', '检索', '找不到']\nmodule: 电子档案\ndept: 电子档案组\nsub_module: 电子档案\nscene: 档案管理\nstatus: active\nversion_from: \"2025-Q2\"\ncreated: 2026-08-18\nreviewed: 2026-08-18\nrelated: []\ntickets: []\n---\n\n# 电子档案归档后无法检索\n\n## 问题描述\n\n电子档案归档后在系统中检索不到？\n\n## 原因分析\n\n1. 归档索引未及时更新\n2. 检索关键词不匹配\n3. 档案权限限制\n\n## 解决方法\n\n1. 等待索引更新（通常5分钟内完成）\n2. 尝试用档案编号或文件名检索\n3. 检查档案权限设置，确认有查看权限\n\n## 排查要点\n\n- [ ] 索引是否已更新\n- [ ] 检索关键词是否准确\n- [ ] 是否有档案查看权限\n\n## 关联知识\n\n- 查看相关产品知识库文档\n"
+    }
+  ],
   "report_docs": [
     {
       "path": "projects/report-system/output/周报/2026-W21-技术支持周报.md",

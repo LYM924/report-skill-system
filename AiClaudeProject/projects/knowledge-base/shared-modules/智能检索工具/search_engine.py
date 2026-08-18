@@ -1973,6 +1973,7 @@ class SearchEngine:
             "module_map": self.module_map,
             "menu_map": {k: v for k, v in self.menu_map.items()},
             "kb_docs": self.kb_docs,
+            "faq_docs": self.faq_docs,
             "report_docs": self.report_docs,
             "synonyms": self.synonyms,
         }
@@ -1993,6 +1994,7 @@ class SearchEngine:
         self.module_map = cache.get("module_map", {})
         self.menu_map = defaultdict(list, cache.get("menu_map", {}))
         self.kb_docs = cache.get("kb_docs", [])
+        self.faq_docs = cache.get("faq_docs", [])
         self.report_docs = cache.get("report_docs", [])
         self.synonyms = cache.get("synonyms", {})
         return True
