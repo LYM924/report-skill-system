@@ -14,7 +14,7 @@ import {
   FolderOutlined, TagOutlined,
 } from '@ant-design/icons';
 import { mockFAQs, trendData, recentUpdates } from '../mock/data';
-import { getFAQs, getFAQDetail, getDocumentDetail } from '../api';
+import { getFAQs, getFAQDetail, getDocumentDetail, getTrends, getRecent } from '../api';
 
 const { Text, Paragraph } = Typography;
 
@@ -168,10 +168,23 @@ function RightPanel({ selectedDoc, onClearDoc }) {
   const [docLoading, setDocLoading] = useState(false);
   const [selectedFaq, setSelectedFaq] = useState(null); // FAQ 详情
   const [faqLoading, setFaqLoading] = useState(false);
+  const [trendData, setTrendData] = useState([]);
+  const [faqTrendData, setFaqTrendData] = useState([]);
+  const [recentData, setRecentData] = useState([]);
 
   useEffect(() => {
     getFAQs().then(data => {
       if (data && data.length > 0) setFaqs(data);
+    });
+  }, []);
+
+  useEffect(() => {
+    getTrends().then(data => {
+      if (data?.trends) setTrendData(data.trends);
+      if (data?.faqTrends) setFaqTrendData(data.faqTrends);
+    });
+    getRecent().then(data => {
+      if (data?.recent) setRecentData(data.recent);
     });
   }, []);
 
@@ -321,13 +334,13 @@ function RightPanel({ selectedDoc, onClearDoc }) {
           <Col span={12}>
             <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 8, height: 90 }}>
               <div style={{ fontSize: 11, color: '#999', marginBottom: 4 }}>高频FAQ</div>
-              <MiniChart data={trendData} color="#0D9488" />
+              <MiniChart data={trendData.length > 0 ? trendData : [{month:'-',value:0}]} color="#0D9488" />
             </div>
           </Col>
           <Col span={12}>
             <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 8, height: 90 }}>
               <div style={{ fontSize: 11, color: '#999', marginBottom: 4 }}>重复热点问题</div>
-              <MiniChart data={trendData.slice().reverse()} color="#2DD4BF" />
+              <MiniChart data={faqTrendData.length > 0 ? faqTrendData : [{month:'-',value:0}]} color="#2DD4BF" />
             </div>
           </Col>
         </Row>
@@ -372,7 +385,7 @@ function RightPanel({ selectedDoc, onClearDoc }) {
           </Col>
           <Col span={12}>
             <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 8, height: 90 }}>
-              <MiniChart data={trendData} color="#0D9488" />
+              <MiniChart data={trendData.length > 0 ? trendData : [{month:'-',value:0}]} color="#0D9488" />
             </div>
           </Col>
         </Row>
@@ -384,17 +397,17 @@ function RightPanel({ selectedDoc, onClearDoc }) {
         <Row gutter={[8, 8]}>
           <Col span={12}>
             <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 8, height: 160 }}>
-              {recentUpdates.slice(0, 3).map(item => (
-                <div key={item.id} style={{ marginBottom: 6, fontSize: 11 }}>
+              {(recentData.length > 0 ? recentData : recentUpdates).slice(0, 3).map(item => (
+                <div key={item.name} style={{ marginBottom: 6, fontSize: 11 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <Avatar size={16} style={{ backgroundColor: item.type === 'add' ? '#52c41a' : '#0D9488', fontSize: 9 }}>
-                      {item.author[0]}
+                    <Avatar size={16} style={{ backgroundColor: '#0D9488', fontSize: 9 }}>
+                      {item.dept?.[0] || '文'}
                     </Avatar>
-                    <Text ellipsis style={{ fontSize: 11, flex: 1 }}>{item.title}</Text>
+                    <Text ellipsis style={{ fontSize: 11, flex: 1 }}>{item.name}</Text>
                   </div>
                   <div style={{ paddingLeft: 20, marginTop: 1 }}>
-                    <Tag color={item.type === 'add' ? 'green' : 'default'} style={{ fontSize: 9, borderRadius: 3, lineHeight: '14px' }}>
-                      {item.type === 'add' ? '新增' : '编辑'}
+                    <Tag color="default" style={{ fontSize: 9, borderRadius: 3, lineHeight: '14px' }}>
+                      更新
                     </Tag>
                     <Text type="secondary" style={{ fontSize: 10 }}>{item.updated}</Text>
                   </div>

@@ -19,7 +19,7 @@ import {
   QuestionCircleOutlined, BarChartOutlined,
   HistoryOutlined, CloseOutlined, BugOutlined,
 } from '@ant-design/icons';
-import { searchKnowledge, getDashboardStats, getDocuments, streamClaudeSummary } from '../api';
+import { searchKnowledge, getDashboardStats, getDocuments, streamClaudeSummary, getHotwords, saveFAQ, deleteFAQ } from '../api';
 
 const { Text, Paragraph } = Typography;
 
@@ -719,6 +719,14 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
 
 /** 问答统计面板 */
 function StatsDashboard({ isDark }) {
+  const [hotwords, setHotwords] = useState([]);
+
+  useEffect(() => {
+    getHotwords().then(data => {
+      if (data?.hotwords) setHotwords(data.hotwords);
+    });
+  }, []);
+
   return (
     <div style={{ width: '100%' }}>
       <Text strong style={{ fontSize: 20, display: 'block', marginBottom: 20, color: isDark ? '#e5e5e5' : '#1e293b' }}>问答统计</Text>
@@ -739,14 +747,14 @@ function StatsDashboard({ isDark }) {
       </Row>
       <Card style={{ borderRadius: 12, marginTop: 20, border: '1px solid #e2e8f0' }}>
         <Text strong style={{ fontSize: 15, display: 'block', marginBottom: 16 }}>搜索热词 Top 10</Text>
-        {['报销单', '选不到', '预算', '审批', '发票', '合同', '采购', '支付', '工资', '考勤'].map((word, i) => (
+        {(hotwords.length > 0 ? hotwords.map(h => h.word) : ['报销单', '选不到', '预算', '审批', '发票', '合同', '采购', '支付', '工资', '考勤']).map((word, i) => (
           <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
             <span style={{ fontSize: 12, color: '#999', width: 20 }}>{i + 1}</span>
             <span style={{ fontSize: 13, color: isDark ? '#ccc' : '#334155' }}>{word}</span>
             <div style={{ flex: 1, height: 6, background: isDark ? '#333' : '#f0f0f0', borderRadius: 3 }}>
               <div style={{ width: `${100 - i * 8}%`, height: '100%', background: '#0D9488', borderRadius: 3 }} />
             </div>
-            <span style={{ fontSize: 12, color: '#999', width: 40, textAlign: 'right' }}>{100 - i * 8}次</span>
+            <span style={{ fontSize: 12, color: '#999', width: 40, textAlign: 'right' }}>{(hotwords[i]?.count || 100 - i * 8)}次</span>
           </div>
         ))}
       </Card>
@@ -816,7 +824,10 @@ function ManagePanel({ isDark }) {
   });
   const [activeSection, setActiveSection] = useState('drafts');
 
-  const handleDeleteDraft = (id) => {
+  const handleDeleteDraft = async (id, path) => {
+    if (path) {
+      await deleteFAQ(path);
+    }
     const updated = faqDrafts.filter(d => d.id !== id);
     setFaqDrafts(updated);
     localStorage.setItem('kb_faq_drafts', JSON.stringify(updated));
@@ -892,9 +903,23 @@ function ManagePanel({ isDark }) {
                   title: '操作', key: 'actions',
                   render: (_, record) => (
                     <div style={{ display: 'flex', gap: 8 }}>
-                      <Button type="link" size="small" style={{ fontSize: 12, padding: 0 }}>编辑</Button>
+                      <Button type="link" size="small" style={{ fontSize: 12, padding: 0, color: '#0D9488' }}
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          await saveFAQ({
+                            title: record.question,
+                            keywords: (record.keywords || []).join(','),
+                            dept: '数智财务组',
+                            sub_module: '浙里报',
+                            module: '浙里报',
+                            content: `## 问题描述\n\n${record.question}\n\n## 解决方法\n\n待补充`,
+                            status: 'active',
+                          });
+                          handleDeleteDraft(record.id, record.path);
+                        }}
+                      >发布</Button>
                       <Button type="link" size="small" danger style={{ fontSize: 12, padding: 0 }}
-                        onClick={(e) => { e.stopPropagation(); handleDeleteDraft(record.id); }}
+                        onClick={(e) => { e.stopPropagation(); handleDeleteDraft(record.id, record.path); }}
                       >删除</Button>
                     </div>
                   ),

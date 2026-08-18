@@ -171,3 +171,38 @@ export function streamClaudeSummary(url, callbacks = {}) {
 
   return () => controller.abort();
 }
+
+/**
+ * 保存 FAQ
+ */
+export async function saveFAQ(data) {
+  return await apiFetch('/faq/save', data);
+}
+
+/**
+ * 删除 FAQ
+ */
+export async function deleteFAQ(path) {
+  return await apiFetch('/faq/delete', { path });
+}
+
+/**
+ * 获取搜索趋势
+ */
+export async function getTrends() {
+  return await apiFetch('/trends');
+}
+
+/**
+ * 获取搜索热词
+ */
+export async function getHotwords() {
+  return await apiFetch('/hotwords');
+}
+
+/**
+ * 获取最近更新
+ */
+export async function getRecent() {
+  return await apiFetch('/recent');
+}
