@@ -267,8 +267,8 @@ class SearchHandler(SimpleHTTPRequestHandler):
             start = (page - 1) * page_size
             for doc in all_docs[start:start + page_size]:
                 name = doc.get("title", doc["path"].split("/")[-1].replace(".md", ""))
-                parts = doc["path"].split("/")
-                dept = parts[2] if len(parts) > 2 else parts[1] if len(parts) > 1 else ""
+                dept = doc.get("dept", "")
+                product = doc.get("domain", "")
                 # 尝试从文件获取真实修改时间
                 doc_path = PROJECT_DIR / doc["path"]
                 updated = "2026-08-10"
@@ -279,7 +279,7 @@ class SearchHandler(SimpleHTTPRequestHandler):
                     "id": hash(doc["path"]) % 10000,
                     "name": name,
                     "path": doc["path"],
-                    "product": doc.get("domain", ""),
+                    "product": product,
                     "dept": dept,
                     "updated": updated,
                     "confidence": 85 + (hash(doc["path"]) % 10),
