@@ -116,6 +116,20 @@ function App() {
   // 左侧栏点击 → 更新筛选范围
   const handleNavChange = (key) => {
     setSelectedNav(key);
+
+    // FAQ 具体条目点击 → 右侧面板展示详情
+    if (key.startsWith('faq-item-')) {
+      const faqId = key.replace('faq-item-', '');
+      fetch(`/api/faq?id=${faqId}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data && !data.error) {
+            setSelectedDoc({ ...data, title: data.title });
+          }
+        });
+      return;
+    }
+
     // 映射到搜索范围
     const scopeMap = {
       all: 'all', product: 'doc', business: 'doc',
@@ -198,6 +212,7 @@ function App() {
               onSearchScopeChange={setSearchScope}
               isDark={isDark}
               topTab={topTab}
+              selectedNav={selectedNav}
             />
           </Content>
 

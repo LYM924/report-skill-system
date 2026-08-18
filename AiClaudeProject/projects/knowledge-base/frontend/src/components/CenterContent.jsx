@@ -17,11 +17,11 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Typography, Card, Input, Button, Select, Row, Col, Spin, Empty, Table } from 'antd';
+import { Typography, Card, Tag, Input, Button, Select, Row, Col, Spin, Empty, Table } from 'antd';
 import {
   SearchOutlined, RobotOutlined, LinkOutlined, FileSearchOutlined, CloudUploadOutlined,
   BulbOutlined, LoadingOutlined, HistoryOutlined, CloseOutlined,
-  FileTextOutlined, QuestionCircleOutlined, BarChartOutlined,
+  FileTextOutlined, QuestionCircleOutlined, BarChartOutlined, RightOutlined,
 } from '@ant-design/icons';
 import { searchKnowledge, getDashboardStats, getDocuments } from '../api';
 import AISummaryPanel from './AISummaryPanel';
@@ -39,7 +39,7 @@ const quickActions = [
   { key: 'ticket_deposit', label: '工单知识沉淀', icon: <CloudUploadOutlined />, color: '#333', bg: '#fff' },
 ];
 
-function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, searchScope, onSearchScopeChange, isDark, topTab }) {
+function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, searchScope, onSearchScopeChange, isDark, topTab, selectedNav }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState(null);
@@ -182,6 +182,12 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
   if (topTab === 'stats') return <StatsDashboard isDark={isDark} />;
   if (topTab === 'ai') return <ChatMode isDark={isDark} />;
   if (topTab === 'manage') return <ManagePanel isDark={isDark} />;
+
+  // FAQ 部门浏览（左侧 FAQ库 点击部门触发）
+  if (selectedNav && selectedNav.startsWith('faq-dept-')) {
+    const dept = selectedNav.replace('faq-dept-', '');
+    return <FaqBrowser dept={dept} isDark={isDark} onSelectDoc={onSelectDoc} />;
+  }
 
   return (
     <div style={{ width: '100%' }}>
@@ -493,6 +499,74 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
               })}
             />
           )}
+        </Card>
+      )}
+    </div>
+  );
+}
+
+/** FAQ 浏览组件（左侧 FAQ库 点击部门后展示） */
+function FaqBrowser({ dept, isDark, onSelectDoc }) {
+  const [faqs, setFaqs] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/faq')
+      .then(r => r.json())
+      .then(data => {
+        const all = data?.faqs || [];
+        setFaqs(all.filter(f => f.dept === dept));
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, [dept]);
+
+  return (
+    <div style={{ width: '100%' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+        <QuestionCircleOutlined style={{ fontSize: 20, color: '#0D9488' }} />
+        <Text strong style={{ fontSize: 18, color: isDark ? '#e5e5e5' : '#1e293b' }}>
+          {dept} · FAQ ({faqs.length})
+        </Text>
+      </div>
+      {loading ? (
+        <Spin />
+      ) : faqs.length === 0 ? (
+        <Empty description="该部门暂无 FAQ" />
+      ) : (
+        <Card style={{ borderRadius: 12, border: `1px solid ${isDark ? '#303030' : '#e2e8f0'}` }}>
+          {faqs.map((faq, i) => (
+            <div
+              key={faq.id || i}
+              onClick={() => onSelectDoc({ ...faq, title: faq.title, path: faq.path })}
+              style={{
+                padding: '14px 16px',
+                borderBottom: i < faqs.length - 1 ? `1px solid ${isDark ? '#303030' : '#f0f0f0'}` : 'none',
+                cursor: 'pointer',
+                transition: 'background 0.15s',
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = isDark ? '#222' : '#fafafa'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <QuestionCircleOutlined style={{ color: '#0D9488', fontSize: 14, flexShrink: 0 }} />
+                <div style={{ flex: 1 }}>
+                  <Text strong style={{ fontSize: 14, color: isDark ? '#e5e5e5' : '#1e293b' }}>
+                    {faq.title}
+                  </Text>
+                  <div style={{ marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                    {faq.keywords?.slice(0, 4).map(k => (
+                      <Tag key={k} style={{ fontSize: 10, borderRadius: 4, margin: 0 }}>{k}</Tag>
+                    ))}
+                    <Tag style={{ fontSize: 10, borderRadius: 4, margin: 0, color: '#0D9488', background: 'rgba(13,148,136,0.08)', border: 'none' }}>
+                      {faq.id || faq.faq_id}
+                    </Tag>
+                  </div>
+                </div>
+                <RightOutlined style={{ color: '#ccc', fontSize: 12 }} />
+              </div>
+            </div>
+          ))}
         </Card>
       )}
     </div>

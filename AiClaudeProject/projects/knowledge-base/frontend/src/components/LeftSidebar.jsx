@@ -2,10 +2,10 @@
  * LeftSidebar.jsx - 左侧导航栏
  *
  * 垂直菜单结构：
- * - 快捷入口: 全部知识、FAQ库、工单沉淀、工单知识
- * - 产品模块（可展开）: 产品线 → 产品 → 模块
- * - 业务模块（可展开）: 领域 → 产品线 → 产品 → 模块
+ * - 快捷入口: 全部知识、FAQ库（可展开，按部门分组）、工单知识
  * - 部门知识（可展开）: 一级部门 → 二级部门 → 三级部门
+ * - 业务模块（可展开）: 领域 → 产品线 → 产品 → 模块
+ * - 产品模块（可展开）: 产品线 → 产品 → 模块
  */
 
 import React, { useState, useEffect } from 'react';
@@ -13,7 +13,7 @@ import { Menu, Button, Spin } from 'antd';
 import {
   FolderOpenOutlined, AppstoreOutlined, ApartmentOutlined,
   FileTextOutlined, TeamOutlined, QuestionCircleOutlined,
-  BugOutlined, MenuFoldOutlined, MenuUnfoldOutlined,
+  MenuFoldOutlined, MenuUnfoldOutlined,
 } from '@ant-design/icons';
 
 /** 构建产品模块子菜单 */
@@ -100,27 +100,56 @@ function buildDeptChildren(menuData) {
   });
 }
 
+/** 构建 FAQ 子菜单（按部门分组，二级展开到具体 FAQ） */
+function buildFaqChildren(faqs) {
+  if (!faqs || faqs.length === 0) return [];
+  const grouped = {};
+  faqs.forEach(faq => {
+    const dept = faq.dept || '其他';
+    if (!grouped[dept]) grouped[dept] = [];
+    grouped[dept].push(faq);
+  });
+  return Object.entries(grouped).map(([dept, items]) => ({
+    key: `faq-dept-${dept}`,
+    label: `${dept} (${items.length})`,
+    icon: <QuestionCircleOutlined />,
+    children: items.map(faq => ({
+      key: `faq-item-${faq.id || faq.faq_id}`,
+      label: faq.title,
+    })),
+  }));
+}
+
 function LeftSidebar({ selectedNav, onNavChange, collapsed, onToggleCollapse }) {
   const [menuData, setMenuData] = useState(null);
+  const [faqs, setFaqs] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/menu')
-      .then(r => r.json())
-      .then(data => {
-        setMenuData(data);
-        setLoading(false);
-      })
-      .catch(() => {
-        setMenuData({ productModules: {}, businessModules: {}, deptKnowledge: {} });
-        setLoading(false);
-      });
+    Promise.all([
+      fetch('/api/menu').then(r => r.json()),
+      fetch('/api/faq').then(r => r.json()),
+    ]).then(([menu, faqData]) => {
+      setMenuData(menu);
+      setFaqs(faqData?.faqs || []);
+      setLoading(false);
+    }).catch(() => {
+      setMenuData({ productModules: {}, businessModules: {}, deptKnowledge: {} });
+      setLoading(false);
+    });
   }, []);
 
   const allMenuItems = React.useMemo(() => {
     if (!menuData) return [];
     return [
       { key: 'all', label: '全部知识', icon: <FolderOpenOutlined /> },
+      {
+        key: 'faq',
+        label: `FAQ库 (${faqs.length})`,
+        icon: <QuestionCircleOutlined />,
+        children: buildFaqChildren(faqs),
+      },
+      { key: 'ticket', label: '工单知识', icon: <FileTextOutlined /> },
       {
         key: 'dept-knowledge',
         label: '部门知识',
@@ -139,10 +168,8 @@ function LeftSidebar({ selectedNav, onNavChange, collapsed, onToggleCollapse }) 
         icon: <AppstoreOutlined />,
         children: buildProductChildren(menuData),
       },
-      { key: 'ticket', label: '工单知识', icon: <FileTextOutlined /> },
-      { key: 'faq', label: 'FAQ库', icon: <QuestionCircleOutlined /> },
     ];
-  }, [menuData]);
+  }, [menuData, faqs]);
 
   const handleClick = ({ key }) => {
     onNavChange(key);
