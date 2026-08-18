@@ -144,6 +144,7 @@ function App() {
     setSearchResults(null);
     setSelectedDoc(null);
     setTopTab('search');
+    setSelectedNav('all');
   };
 
   // 深色模式切换
