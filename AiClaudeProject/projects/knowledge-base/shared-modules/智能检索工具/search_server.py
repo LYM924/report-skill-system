@@ -244,7 +244,11 @@ class SearchHandler(SimpleHTTPRequestHandler):
             page = int(params.get("page", ["1"])[0])
             page_size = min(int(params.get("page_size", ["20"])[0]), 100)
             docs = []
-            all_docs = eng.kb_docs
+            all_docs = sorted(eng.kb_docs, key=lambda d: (
+                # 按文件修改时间倒序，最新在前
+                (PROJECT_DIR / d["path"]).stat().st_mtime
+                if (PROJECT_DIR / d["path"]).exists() else 0
+            ), reverse=True)
             if module:
                 all_docs = [d for d in all_docs if module in d.get("path", "")]
             total = len(all_docs)
