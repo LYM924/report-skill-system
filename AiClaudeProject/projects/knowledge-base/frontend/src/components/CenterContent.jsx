@@ -17,11 +17,12 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Typography, Card, Tag, Input, Button, Select, Row, Col, Spin, Empty, Table } from 'antd';
+import { Typography, Card, Tag, Input, Button, Select, Row, Col, Spin, Empty, Table, Tooltip } from 'antd';
 import {
   SearchOutlined, RobotOutlined, LinkOutlined, FileSearchOutlined, CloudUploadOutlined,
   BulbOutlined, LoadingOutlined, HistoryOutlined, CloseOutlined,
   FileTextOutlined, QuestionCircleOutlined, BarChartOutlined, RightOutlined,
+  InfoCircleOutlined,
 } from '@ant-design/icons';
 import { searchKnowledge, getDashboardStats, getDocuments } from '../api';
 import AISummaryPanel from './AISummaryPanel';
@@ -439,25 +440,45 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
             <Row gutter={[16, 16]}>
               <Col span={6}>
                 <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 8, padding: '16px 20px' }}>
-                  <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 4 }}>知识文档</div>
+                  <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    知识文档
+                    <Tooltip title="统计 knowledge/ 目录下所有产品知识库 .md 文档，不含 FAQ 条目和原始文档(raw-docs)">
+                      <InfoCircleOutlined style={{ fontSize: 12, opacity: 0.6, cursor: 'help' }} />
+                    </Tooltip>
+                  </div>
                   <div style={{ fontSize: 32, fontWeight: 700, lineHeight: 1.2 }}>{stats.totalDocs?.toLocaleString() || '-'}</div>
                 </div>
               </Col>
               <Col span={6}>
                 <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 8, padding: '16px 20px' }}>
-                  <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 4 }}>FAQ沉淀</div>
+                  <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    FAQ沉淀
+                    <Tooltip title="统计 FAQ知识库/ 目录下所有 FAQ .md 文件，按部门分组展示在左侧 FAQ 库菜单中">
+                      <InfoCircleOutlined style={{ fontSize: 12, opacity: 0.6, cursor: 'help' }} />
+                    </Tooltip>
+                  </div>
                   <div style={{ fontSize: 32, fontWeight: 700, lineHeight: 1.2 }}>{stats.faqCount?.toLocaleString() || '-'}</div>
                 </div>
               </Col>
               <Col span={6}>
                 <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 8, padding: '16px 20px' }}>
-                  <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 4 }}>本周问题</div>
+                  <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    本周问题
+                    <Tooltip title="本周累计搜索次数，服务重启后归零。包含 FAQ 缓存命中次数">
+                      <InfoCircleOutlined style={{ fontSize: 12, opacity: 0.6, cursor: 'help' }} />
+                    </Tooltip>
+                  </div>
                   <div style={{ fontSize: 32, fontWeight: 700, lineHeight: 1.2 }}>{stats.weekQuestions || '-'}</div>
                 </div>
               </Col>
               <Col span={6}>
                 <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 8, padding: '16px 20px' }}>
-                  <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 4 }}>本周新增</div>
+                  <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    本周新增
+                    <Tooltip title="当前知识库文档总数，即 knowledge/ 目录下 .md 文件数量（不含 FAQ 和原始文档）">
+                      <InfoCircleOutlined style={{ fontSize: 12, opacity: 0.6, cursor: 'help' }} />
+                    </Tooltip>
+                  </div>
                   <div style={{ fontSize: 32, fontWeight: 700, lineHeight: 1.2 }}>
                     {stats.weekNew || '-'}
                   </div>
