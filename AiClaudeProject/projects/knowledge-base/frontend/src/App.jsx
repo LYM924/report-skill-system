@@ -26,9 +26,34 @@ function App() {
   const [selectedDoc, setSelectedDoc] = useState(null); // 右侧面板选中的文档
   const [searchScope, setSearchScope] = useState('all'); // 左侧栏联动搜索范围
 
-  // 右侧面板可拖拽调整宽度
-  const [rightWidth, setRightWidth] = useState(320);
+  // 右侧面板宽度（响应式：占可用宽度 22%，最小 280px，最大 500px）
+  const calcRightWidth = useCallback(() => {
+    const leftW = sidebarCollapsed ? 60 : 240;
+    const available = window.innerWidth - leftW;
+    return Math.max(280, Math.min(500, Math.round(available * 0.22)));
+  }, [sidebarCollapsed]);
+
+  const [rightWidth, setRightWidth] = useState(calcRightWidth);
+  const [userResized, setUserResized] = useState(false); // 用户手动拖拽后不再自动缩放
   const resizing = useRef(false);
+
+  // 窗口缩放时自适应
+  useEffect(() => {
+    const handleResize = () => {
+      if (!userResized) {
+        setRightWidth(calcRightWidth());
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [userResized, calcRightWidth]);
+
+  // 左侧栏折叠/展开时调整
+  useEffect(() => {
+    if (!userResized) {
+      setRightWidth(calcRightWidth());
+    }
+  }, [sidebarCollapsed, userResized, calcRightWidth]);
 
   // 快捷键面板
   const [shortcutsVisible, setShortcutsVisible] = useState(false);
@@ -55,6 +80,7 @@ function App() {
   const handleResizeStart = useCallback((e) => {
     e.preventDefault();
     resizing.current = true;
+    setUserResized(true);
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
   }, []);
