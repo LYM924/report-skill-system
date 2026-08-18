@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Layout, ConfigProvider, Modal } from 'antd';
+import { Layout, ConfigProvider, Modal, theme } from 'antd';
 import { SearchOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import zhCN from 'antd/locale/zh_CN';
 import TopNav from './components/TopNav';
@@ -16,15 +16,24 @@ import RightPanel from './components/RightPanel';
 import './App.css';
 
 const { Header, Sider, Content } = Layout;
+const { darkAlgorithm, defaultAlgorithm } = theme;
 
 function App() {
   const [selectedNav, setSelectedNav] = useState('all');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-  // 搜索状态（提升到 App 层，供 CenterContent 和 RightPanel 联动）
+  // 深色模式
+  const [isDark, setIsDark] = useState(() => {
+    try { return localStorage.getItem('kb_dark_mode') === '1'; } catch { return false; }
+  });
+
+  // 顶部导航 Tab
+  const [topTab, setTopTab] = useState('search');
+
+  // 搜索状态
   const [searchResults, setSearchResults] = useState(null);
-  const [selectedDoc, setSelectedDoc] = useState(null); // 右侧面板选中的文档
-  const [searchScope, setSearchScope] = useState('all'); // 左侧栏联动搜索范围
+  const [selectedDoc, setSelectedDoc] = useState(null);
+  const [searchScope, setSearchScope] = useState('all');
 
   // 右侧面板宽度（响应式：占可用宽度 22%，最小 280px，最大 500px）
   const calcRightWidth = useCallback(() => {
@@ -118,23 +127,32 @@ function App() {
 
   // 点击 logo 回到首页
   const handleGoHome = () => {
-    if (searchResults) {
-      setSearchResults(null);
-      setSelectedDoc(null);
-    } else {
-      window.location.reload();
-    }
+    setSearchResults(null);
+    setSelectedDoc(null);
+    setTopTab('search');
   };
+
+  // 深色模式切换
+  const toggleDark = () => {
+    setIsDark(prev => {
+      const next = !prev;
+      try { localStorage.setItem('kb_dark_mode', next ? '1' : '0'); } catch {}
+      return next;
+    });
+  };
+
+  const isDarkBg = isDark ? '#141414' : '#f8fafc';
+  const isDarkSider = isDark ? '#1a1a1a' : '#f8fafa';
+  const isDarkBorder = isDark ? '#303030' : '#e2e8f0';
 
   return (
     <ConfigProvider
       locale={zhCN}
       theme={{
+        algorithm: isDark ? darkAlgorithm : defaultAlgorithm,
         token: {
           colorPrimary: '#0D9488',
           borderRadius: 8,
-          colorBgContainer: '#ffffff',
-          colorBgLayout: '#f8fafc',
           fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif',
         },
       }}
@@ -143,11 +161,12 @@ function App() {
         {/* ===== 顶部全局导航 ===== */}
         <Header style={{
           height: 60, lineHeight: '60px', padding: '0 16px',
-          background: '#fff', borderBottom: '1px solid #e2e8f0',
+          background: isDark ? '#1a1a1a' : '#fff',
+          borderBottom: `1px solid ${isDarkBorder}`,
           display: 'flex', alignItems: 'center', zIndex: 100,
           flexShrink: 0,
         }}>
-          <TopNav onGoHome={handleGoHome} />
+          <TopNav onGoHome={handleGoHome} isDark={isDark} onToggleDark={toggleDark} topTab={topTab} onTabChange={setTopTab} />
         </Header>
 
         <Layout style={{ flex: 1, overflow: 'hidden' }}>
@@ -159,7 +178,7 @@ function App() {
             collapsed={sidebarCollapsed}
             onCollapse={setSidebarCollapsed}
             trigger={null}
-            style={{ background: '#f8fafa', borderRight: '1px solid #e2e8f0', overflow: 'hidden' }}
+            style={{ background: isDarkSider, borderRight: `1px solid ${isDarkBorder}`, overflow: 'hidden' }}
           >
             <LeftSidebar
               selectedNav={selectedNav}
@@ -170,19 +189,20 @@ function App() {
           </Sider>
 
           {/* ===== 中间主面板 ===== */}
-          <Content style={{ background: '#f8fafc', overflow: 'auto', padding: '16px 20px' }}>
+          <Content style={{ background: isDarkBg, overflow: 'auto', padding: '16px 20px' }}>
             <CenterContent
               searchResults={searchResults}
               onSearchResultsChange={setSearchResults}
               onSelectDoc={setSelectedDoc}
               searchScope={searchScope}
               onSearchScopeChange={setSearchScope}
+              isDark={isDark}
+              topTab={topTab}
             />
           </Content>
 
           {/* ===== 右侧信息看板 ===== */}
           <div style={{ position: 'relative', flexShrink: 0, width: rightWidth }}>
-            {/* 拖拽手柄 */}
             <div
               onMouseDown={handleResizeStart}
               style={{
@@ -194,7 +214,7 @@ function App() {
               onMouseEnter={e => e.currentTarget.style.background = 'rgba(13,148,136,0.15)'}
               onMouseLeave={e => { if (!resizing.current) e.currentTarget.style.background = 'transparent'; }}
             />
-            <div style={{ width: '100%', height: '100%', background: '#fff', borderLeft: '1px solid #e2e8f0', overflow: 'hidden' }}>
+            <div style={{ width: '100%', height: '100%', background: isDark ? '#1a1a1a' : '#fff', borderLeft: `1px solid ${isDarkBorder}`, overflow: 'hidden' }}>
               <RightPanel
                 selectedDoc={selectedDoc}
                 onClearDoc={() => setSelectedDoc(null)}

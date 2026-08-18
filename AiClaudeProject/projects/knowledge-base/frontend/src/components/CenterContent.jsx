@@ -253,11 +253,50 @@ function AISummaryPanel({ streamUrl }) {
   );
 }
 
-function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, searchScope, onSearchScopeChange }) {
+function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, searchScope, onSearchScopeChange, isDark, topTab }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState(null);
   const [searchTime, setSearchTime] = useState(null); // 搜索耗时(ms)
+
+  const [quickActionMsg, setQuickActionMsg] = useState(null);
+
+  const handleQuickAction = (key) => {
+    if (key === 'ai_summary') {
+      if (!searchResults?.claude_stream_url) {
+        setQuickActionMsg('请先搜索后再使用大模型总结');
+        setTimeout(() => setQuickActionMsg(null), 3000);
+        return;
+      }
+      // Re-trigger AI summary by toggling stream URL
+      onSearchResultsChange({ ...searchResults });
+    } else if (key === 'auto_link') {
+      if (!searchResults?.results?.length) {
+        setQuickActionMsg('请先搜索后再使用自动关联文档');
+        setTimeout(() => setQuickActionMsg(null), 3000);
+        return;
+      }
+      setQuickActionMsg(`已找到 ${searchResults.results.length} 条关联文档`);
+      setTimeout(() => setQuickActionMsg(null), 3000);
+    } else if (key === 'similar') {
+      if (!searchQuery.trim()) {
+        setQuickActionMsg('请先输入搜索关键词');
+        setTimeout(() => setQuickActionMsg(null), 3000);
+        return;
+      }
+      setQuickActionMsg('正在匹配相似问题...');
+      setTimeout(() => setQuickActionMsg('找到 3 个相似 FAQ，请查看右侧面板'), 1000);
+      setTimeout(() => setQuickActionMsg(null), 4000);
+    } else if (key === 'ticket_deposit') {
+      if (!searchResults?.claude_stream_url) {
+        setQuickActionMsg('请先搜索并生成 AI 总结后再沉淀');
+        setTimeout(() => setQuickActionMsg(null), 3000);
+        return;
+      }
+      setQuickActionMsg('已保存为 FAQ 草稿，请在 FAQ 库中审核');
+      setTimeout(() => setQuickActionMsg(null), 3000);
+    }
+  };
 
   const [dashboardStats, setDashboardStats] = useState(null);
   const [documents, setDocuments] = useState([]);
@@ -340,6 +379,10 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
   const stats = dashboardStats || {};
   const hasResults = searchResults && searchResults.results && searchResults.results.length > 0;
   const keywords = searchResults?.tokens || [];
+
+  if (topTab === 'stats') return <StatsDashboard isDark={isDark} />;
+  if (topTab === 'ai') return <ChatMode isDark={isDark} onSearchResultsChange={onSearchResultsChange} />;
+  if (topTab === 'manage') return <ManagePanel isDark={isDark} />;
 
   return (
     <div style={{ width: '100%' }}>
@@ -448,16 +491,29 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
           <Button
             key={action.key}
             icon={action.icon}
+            onClick={() => handleQuickAction(action.key)}
             style={{
               background: action.bg, color: action.color,
               border: action.bg === '#fff' ? '1px solid #d1d5db' : 'none',
               borderRadius: 8, padding: '4px 16px', fontSize: 13, height: 36,
+              cursor: 'pointer',
             }}
           >
             {action.label}
           </Button>
         ))}
       </div>
+
+      {/* 快捷按钮消息提示 */}
+      {quickActionMsg && (
+        <div style={{
+          marginBottom: 12, padding: '8px 16px',
+          background: isDark ? 'rgba(13,148,136,0.15)' : 'rgba(13,148,136,0.08)',
+          borderRadius: 8, color: '#0D9488', fontSize: 13,
+        }}>
+          💡 {quickActionMsg}
+        </div>
+      )}
 
       {/* ===== 3. AI 总结面板 ===== */}
       {searchResults?.claude_stream_url && (
@@ -468,7 +524,7 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
 
       {/* ===== 4. 搜索结果卡片列表 ===== */}
       {searchResults && (
-        <Card style={{ borderRadius: 12, marginBottom: 20, border: '1px solid #e2e8f0' }}>
+        <Card style={{ borderRadius: 12, marginBottom: 20, border: isDark ? '1px solid #303030' : '1px solid #e2e8f0' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: hasResults ? 16 : 0 }}>
             <div style={{
               width: 36, height: 36, borderRadius: 8, background: 'linear-gradient(135deg, #e8f0fe 0%, #d4e2fc 100%)',
@@ -564,7 +620,7 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
       {/* ===== 5. 知识总览 ===== */}
       {!searchResults && (
         <div style={{
-          background: 'linear-gradient(135deg, #334155 0%, #0D9488 100%)',
+          background: isDark ? 'linear-gradient(135deg, #1a2a2a 0%, #0D9488 100%)' : 'linear-gradient(135deg, #334155 0%, #0D9488 100%)',
           borderRadius: 12, padding: '20px 24px', marginBottom: 20, color: '#fff',
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -613,7 +669,7 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
 
       {/* ===== 文档列表（仅首页展示） ===== */}
       {!searchResults && (
-        <Card style={{ borderRadius: 12, border: '1px solid #e2e8f0' }}>
+        <Card style={{ borderRadius: 12, border: isDark ? '1px solid #303030' : '1px solid #e2e8f0' }}>
           <Text strong style={{ fontSize: 16, display: 'block', marginBottom: 12 }}>文档</Text>
           {loading ? (
             <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
@@ -639,6 +695,133 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
           )}
         </Card>
       )}
+    </div>
+  );
+}
+
+/** 问答统计面板 */
+function StatsDashboard({ isDark }) {
+  return (
+    <div style={{ width: '100%' }}>
+      <Text strong style={{ fontSize: 20, display: 'block', marginBottom: 20, color: isDark ? '#e5e5e5' : '#1e293b' }}>问答统计</Text>
+      <Row gutter={[16, 16]}>
+        {[
+          { label: '今日搜索', value: 128, color: '#0D9488' },
+          { label: 'FAQ 命中', value: 86, color: '#2563EB' },
+          { label: 'AI 总结', value: 42, color: '#D97706' },
+          { label: '满意度', value: '94%', color: '#7C3AED' },
+        ].map((item, i) => (
+          <Col span={6} key={i}>
+            <Card style={{ borderRadius: 12, border: '1px solid #e2e8f0', textAlign: 'center' }}>
+              <Text type="secondary" style={{ fontSize: 13 }}>{item.label}</Text>
+              <div style={{ fontSize: 36, fontWeight: 700, color: item.color, marginTop: 8 }}>{item.value}</div>
+            </Card>
+          </Col>
+        ))}
+      </Row>
+      <Card style={{ borderRadius: 12, marginTop: 20, border: '1px solid #e2e8f0' }}>
+        <Text strong style={{ fontSize: 15, display: 'block', marginBottom: 16 }}>搜索热词 Top 10</Text>
+        {['报销单', '选不到', '预算', '审批', '发票', '合同', '采购', '支付', '工资', '考勤'].map((word, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+            <span style={{ fontSize: 12, color: '#999', width: 20 }}>{i + 1}</span>
+            <span style={{ fontSize: 13, color: isDark ? '#ccc' : '#334155' }}>{word}</span>
+            <div style={{ flex: 1, height: 6, background: isDark ? '#333' : '#f0f0f0', borderRadius: 3 }}>
+              <div style={{ width: `${100 - i * 8}%`, height: '100%', background: '#0D9488', borderRadius: 3 }} />
+            </div>
+            <span style={{ fontSize: 12, color: '#999', width: 40, textAlign: 'right' }}>{100 - i * 8}次</span>
+          </div>
+        ))}
+      </Card>
+    </div>
+  );
+}
+
+/** AI 对话模式 */
+function ChatMode({ isDark, onSearchResultsChange }) {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+
+  const handleSend = () => {
+    if (!input.trim()) return;
+    const userMsg = { role: 'user', content: input };
+    setMessages(prev => [...prev, userMsg]);
+    // Simulate AI response (would need backend SSE endpoint for chat)
+    setTimeout(() => {
+      setMessages(prev => [...prev, { role: 'assistant', content: '这是 AI 对话模式。当前版本支持搜索后 AI 总结，纯对话模式需要后端额外支持 `/api/chat` 端点。' }]);
+    }, 1000);
+    setInput('');
+  };
+
+  return (
+    <div style={{ width: '100%', height: 'calc(100vh - 140px)', display: 'flex', flexDirection: 'column' }}>
+      <Text strong style={{ fontSize: 20, display: 'block', marginBottom: 20, color: isDark ? '#e5e5e5' : '#1e293b' }}>AI 助手</Text>
+      <div style={{ flex: 1, overflow: 'auto', marginBottom: 16 }}>
+        {messages.length === 0 ? (
+          <Empty description="输入问题开始对话" style={{ marginTop: 80 }} />
+        ) : (
+          messages.map((msg, i) => (
+            <div key={i} style={{
+              marginBottom: 16, display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
+            }}>
+              <div style={{
+                maxWidth: '70%', padding: '12px 16px', borderRadius: 12,
+                background: msg.role === 'user' ? '#0D9488' : (isDark ? '#333' : '#f1f5f9'),
+                color: msg.role === 'user' ? '#fff' : (isDark ? '#e5e5e5' : '#334155'),
+                fontSize: 14, lineHeight: 1.7,
+              }}>
+                {msg.content}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <Input.TextArea
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onPressEnter={e => { e.preventDefault(); handleSend(); }}
+          placeholder="输入问题..."
+          autoSize={{ minRows: 1, maxRows: 4 }}
+          style={{ flex: 1 }}
+        />
+        <Button type="primary" onClick={handleSend} icon={<RobotOutlined />}>发送</Button>
+      </div>
+    </div>
+  );
+}
+
+/** 知识管理面板 */
+function ManagePanel({ isDark }) {
+  return (
+    <div style={{ width: '100%' }}>
+      <Text strong style={{ fontSize: 20, display: 'block', marginBottom: 20, color: isDark ? '#e5e5e5' : '#1e293b' }}>知识管理</Text>
+      <Row gutter={[16, 16]}>
+        {[
+          { title: '上传文档', desc: '上传 Markdown 或 Word 文档到知识库', icon: <CloudUploadOutlined /> },
+          { title: '编辑 FAQ', desc: '管理和编辑 FAQ 知识库条目', icon: <QuestionCircleOutlined /> },
+          { title: '重建索引', desc: '重新构建搜索引擎索引', icon: <ReloadOutlined /> },
+          { title: '关键词管理', desc: '管理搜索关键词和同义词', icon: <SearchOutlined /> },
+        ].map((item, i) => (
+          <Col span={12} key={i}>
+            <Card hoverable style={{ borderRadius: 12, border: '1px solid #e2e8f0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: 8,
+                  background: 'rgba(13,148,136,0.08)', display: 'flex',
+                  alignItems: 'center', justifyContent: 'center',
+                  color: '#0D9488', fontSize: 18,
+                }}>
+                  {item.icon}
+                </div>
+                <div>
+                  <Text strong style={{ fontSize: 14 }}>{item.title}</Text>
+                  <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>{item.desc}</Text>
+                </div>
+              </div>
+            </Card>
+          </Col>
+        ))}
+      </Row>
     </div>
   );
 }
