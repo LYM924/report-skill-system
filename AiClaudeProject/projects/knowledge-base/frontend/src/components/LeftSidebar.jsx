@@ -100,7 +100,7 @@ function buildDeptChildren(menuData) {
   });
 }
 
-/** 构建 FAQ 子菜单（按部门分组，二级展开到具体 FAQ） */
+/** 构建 FAQ 子菜单（按部门分组，点击部门在中间面板展示列表） */
 function buildFaqChildren(faqs) {
   if (!faqs || faqs.length === 0) return [];
   const grouped = {};
@@ -113,10 +113,6 @@ function buildFaqChildren(faqs) {
     key: `faq-dept-${dept}`,
     label: `${dept} (${items.length})`,
     icon: <QuestionCircleOutlined />,
-    children: items.map(faq => ({
-      key: `faq-item-${faq.id || faq.faq_id}`,
-      label: faq.title,
-    })),
   }));
 }
 
