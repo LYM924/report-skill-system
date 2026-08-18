@@ -163,11 +163,12 @@ class SearchHandler(SimpleHTTPRequestHandler):
             deep = params.get("deep", ["0"])[0] == "1"  # 新增：深度分析模式
 
             if not sid or sid not in SESSION_STORE:
+                self._sse_start()
                 self._sse_send({"error": "会话已过期，请重新搜索"})
                 self._sse_done()
                 return
 
-            session = SESSION_STORE.pop(sid)  # 取出后删除，防止重复使用
+            session = SESSION_STORE.get(sid)  # 深度分析需要复用 session
             query = session.get("query", "")
             context = session.get("prompt", {})
 
@@ -185,6 +186,7 @@ class SearchHandler(SimpleHTTPRequestHandler):
 
             api_key = os.environ.get("ANTHROPIC_AUTH_TOKEN", "") or os.environ.get("ANTHROPIC_API_KEY", "")
             if not api_key:
+                self._sse_start()
                 self._sse_send({"error": "未配置 ANTHROPIC_AUTH_TOKEN 或 ANTHROPIC_API_KEY 环境变量"})
                 self._sse_done()
                 return
