@@ -1967,12 +1967,17 @@ class SearchEngine:
     # -------- cache --------
 
     def save_cache(self):
-        """保存索引缓存（含元信息用于过期检测）"""
+        """保存索引缓存（含文件计数用于自动过期检测）"""
+        # 统计各目录的原始文件数（与 rglob 一致，用于 load_cache 过期检测）
+        _kb_raw = len(list(KB_DIR.rglob("*.md"))) if KB_DIR.exists() else 0
+        _faq_raw = len([f for f in FAQ_DIR.rglob("*.md")
+                       if f.name not in ("TEMPLATE.md", "INDEX.md")]) if FAQ_DIR.exists() else 0
+        _report_raw = len(list(REPORT_DIR.rglob("*.md"))) if REPORT_DIR.exists() else 0
         cache = {
             "_meta": {
-                "kb_count": len(self.kb_docs),
-                "faq_count": len(self.faq_docs),
-                "report_count": len(self.report_docs),
+                "kb_count": _kb_raw,
+                "faq_count": _faq_raw,
+                "report_count": _report_raw,
                 "updated": __import__('datetime').datetime.now().isoformat(),
             },
             "keyword_map": {k: v for k, v in self.keyword_map.items()},
@@ -1991,11 +1996,30 @@ class SearchEngine:
             self.bm25.save(str(self.bm25_cache_file))
 
     def load_cache(self):
-        """加载索引缓存"""
+        """加载索引缓存（自动检测文件变更，过期则重建）"""
         if not CACHE_FILE.exists():
             return False
-        with open(CACHE_FILE, "r", encoding="utf-8") as f:
-            cache = json.load(f)
+
+        # 快速新鲜度检查：对比各目录 .md 文件数与缓存记录
+        try:
+            with open(CACHE_FILE, "r", encoding="utf-8") as f:
+                cache = json.load(f)
+        except Exception:
+            return False
+
+        meta = cache.get("_meta", {})
+        if meta:
+            # FAQ 文件同时加入 kb_docs 和 faq_docs，用总数对比
+            kb_count = len(list(KB_DIR.rglob("*.md"))) if KB_DIR.exists() else 0
+            faq_count = len([f for f in FAQ_DIR.rglob("*.md")
+                           if f.name not in ("TEMPLATE.md", "INDEX.md")]) if FAQ_DIR.exists() else 0
+            report_count = len(list(REPORT_DIR.rglob("*.md"))) if REPORT_DIR.exists() else 0
+            # kb_docs = KB_DIR + FAQ_DIR（_load_faq_knowledge 会同时写入 kb_docs）
+            if (kb_count != meta.get("kb_count", -1) or
+                faq_count != meta.get("faq_count", -1) or
+                report_count != meta.get("report_count", -1)):
+                return False  # 文件数变化，缓存过期
+
         self.keyword_map = defaultdict(list, cache.get("keyword_map", {}))
         self.module_map = cache.get("module_map", {})
         self.menu_map = defaultdict(list, cache.get("menu_map", {}))
