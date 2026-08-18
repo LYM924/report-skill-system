@@ -45,9 +45,59 @@ function MiniChart({ data, color = '#0D9488', height = 50 }) {
   );
 }
 
-/** 简单 Markdown 渲染（处理标题、列表、表格） */
+/** 简单 Markdown 渲染（处理标题、列表、表格、图片、链接、粗体） */
 function SimpleMarkdown({ content }) {
   if (!content) return <Text type="secondary">暂无内容</Text>;
+
+  /** 渲染行内元素：图片、链接、粗体 */
+  function renderInline(text) {
+    const parts = [];
+    let remaining = text;
+    let key = 0;
+
+    // 匹配图片 ![alt](url)、链接 [text](url)、粗体 **text**
+    const pattern = /!\[([^\]]*)\]\(([^)]+)\)|\[([^\]]+)\]\(([^)]+)\)|\*\*([^*]+)\*\*/g;
+    let lastIndex = 0;
+    let match;
+
+    while ((match = pattern.exec(remaining)) !== null) {
+      // 前面的纯文本
+      if (match.index > lastIndex) {
+        parts.push(remaining.slice(lastIndex, match.index));
+      }
+
+      if (match[1] !== undefined) {
+        // 图片
+        parts.push(
+          <img
+            key={key++}
+            src={match[2]}
+            alt={match[1]}
+            style={{ maxWidth: '100%', borderRadius: 6, margin: '8px 0', display: 'block' }}
+          />
+        );
+      } else if (match[3] !== undefined) {
+        // 链接
+        parts.push(
+          <a key={key++} href={match[4]} target="_blank" rel="noopener noreferrer" style={{ color: '#0D9488' }}>
+            {match[3]}
+          </a>
+        );
+      } else if (match[5] !== undefined) {
+        // 粗体
+        parts.push(<strong key={key++}>{match[5]}</strong>);
+      }
+
+      lastIndex = pattern.lastIndex;
+    }
+
+    // 剩余文本
+    if (lastIndex < remaining.length) {
+      parts.push(remaining.slice(lastIndex));
+    }
+
+    return parts.length > 0 ? parts : text;
+  }
 
   const lines = content.split('\n');
   const elements = [];
@@ -91,7 +141,7 @@ function SimpleMarkdown({ content }) {
     } else if (line.match(/^[-*]\s/)) {
       elements.push(
         <div key={i} style={{ paddingLeft: 16, fontSize: 13, lineHeight: 1.8, color: '#4B5563' }}>
-          • {line.replace(/^[-*]\s/, '')}
+          • {renderInline(line.replace(/^[-*]\s/, ''))}
         </div>
       );
     } else if (line.startsWith('|')) {
@@ -103,7 +153,7 @@ function SimpleMarkdown({ content }) {
     } else {
       elements.push(
         <Text key={i} style={{ fontSize: 13, display: 'block', lineHeight: 1.8, color: '#4B5563' }}>
-          {line}
+          {renderInline(line)}
         </Text>
       );
     }

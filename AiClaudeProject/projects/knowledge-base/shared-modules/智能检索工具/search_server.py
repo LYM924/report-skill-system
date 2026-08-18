@@ -226,6 +226,7 @@ class SearchHandler(SimpleHTTPRequestHandler):
                 docs.append({
                     "id": hash(doc["path"]) % 10000,
                     "name": name,
+                    "path": doc["path"],
                     "product": doc.get("domain", ""),
                     "dept": dept,
                     "updated": "2026-08-10",

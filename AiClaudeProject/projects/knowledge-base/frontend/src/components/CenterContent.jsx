@@ -623,7 +623,7 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
             <Table
               dataSource={documents}
               columns={[
-                { title: '文档', dataIndex: 'name', key: 'name', render: text => <Text strong style={{ fontSize: 13, color: '#333' }}>{text}</Text> },
+                { title: '文档', dataIndex: 'name', key: 'name', render: text => <Text strong style={{ fontSize: 13, color: '#0D9488', cursor: 'pointer' }}>{text}</Text> },
                 { title: '产品记录', dataIndex: 'product', key: 'product', render: text => <span style={{ color: '#555' }}>{text || '-'}</span> },
                 { title: '所属部门', dataIndex: 'dept', key: 'dept', render: text => <span style={{ color: '#555' }}>{text || '-'}</span> },
                 { title: '更新时间', dataIndex: 'updated', key: 'updated', render: text => <span style={{ color: '#555' }}>{text || '-'}</span> },
@@ -631,6 +631,10 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
               rowKey="id"
               pagination={{ pageSize: 6, size: 'small' }}
               size="middle"
+              onRow={(record) => ({
+                onClick: () => onSelectDoc(record),
+                style: { cursor: 'pointer' },
+              })}
             />
           )}
         </Card>
