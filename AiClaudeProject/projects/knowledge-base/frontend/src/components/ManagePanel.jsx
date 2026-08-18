@@ -34,6 +34,14 @@ function ManagePanel({ isDark }) {
   const [publishContent, setPublishContent] = useState('');
   const [suggesting, setSuggesting] = useState(false);
 
+  const [editModal, setEditModal] = useState(false);
+  const [editRecord, setEditRecord] = useState(null);
+  const [editQuestion, setEditQuestion] = useState('');
+  const [editKeywords, setEditKeywords] = useState('');
+  const [editAnswer, setEditAnswer] = useState('');
+
+  const [uploadModal, setUploadModal] = useState(false);
+
   const handleDeleteDraft = async (id, path) => {
     if (path) {
       await deleteFAQ(path);
@@ -41,6 +49,31 @@ function ManagePanel({ isDark }) {
     const updated = faqDrafts.filter(d => d.id !== id);
     setFaqDrafts(updated);
     localStorage.setItem('kb_faq_drafts', JSON.stringify(updated));
+  };
+
+  const openEditModal = (record) => {
+    setEditRecord(record);
+    setEditQuestion(record.question || '');
+    setEditKeywords((record.keywords || []).join(', '));
+    setEditAnswer(record.answer || '');
+    setEditModal(true);
+  };
+
+  const handleSaveEdit = () => {
+    if (!editRecord) return;
+    const drafts = JSON.parse(localStorage.getItem('kb_faq_drafts') || '[]');
+    const idx = drafts.findIndex(d => d.id === editRecord.id);
+    if (idx >= 0) {
+      drafts[idx] = {
+        ...drafts[idx],
+        question: editQuestion,
+        keywords: editKeywords.split(',').map(k => k.trim()).filter(Boolean),
+        answer: editAnswer,
+      };
+      localStorage.setItem('kb_faq_drafts', JSON.stringify(drafts));
+      setFaqDrafts(drafts);
+    }
+    setEditModal(false);
   };
 
   // 打开发布弹窗，自动检测归属
@@ -100,7 +133,10 @@ function ManagePanel({ isDark }) {
                 borderRadius: 12,
                 border: activeSection === item.key ? '2px solid #0D9488' : '1px solid #e2e8f0',
               }}
-              onClick={() => setActiveSection(item.key)}
+              onClick={() => {
+                setActiveSection(item.key);
+                if (item.key === 'upload') setUploadModal(true);
+              }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <div style={{
@@ -150,6 +186,9 @@ function ManagePanel({ isDark }) {
                   title: '操作', key: 'actions',
                   render: (_, record) => (
                     <div style={{ display: 'flex', gap: 8 }}>
+                      <Button type="link" size="small" style={{ fontSize: 12, padding: 0 }}
+                        onClick={(e) => { e.stopPropagation(); openEditModal(record); }}
+                      >编辑</Button>
                       <Button type="link" size="small" style={{ fontSize: 12, padding: 0, color: '#0D9488' }}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -222,6 +261,51 @@ function ManagePanel({ isDark }) {
             />
           </div>
         </div>
+      </Modal>
+
+      {/* 编辑弹窗 */}
+      <Modal
+        title="编辑 FAQ 草稿"
+        open={editModal}
+        onOk={handleSaveEdit}
+        onCancel={() => setEditModal(false)}
+        okText="保存"
+        cancelText="取消"
+        width={600}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <Text type="secondary" style={{ fontSize: 12 }}>问题</Text>
+            <Input value={editQuestion} onChange={e => setEditQuestion(e.target.value)} style={{ marginTop: 4 }} />
+          </div>
+          <div>
+            <Text type="secondary" style={{ fontSize: 12 }}>关键词（逗号分隔）</Text>
+            <Input value={editKeywords} onChange={e => setEditKeywords(e.target.value)} style={{ marginTop: 4 }} />
+          </div>
+          <div>
+            <Text type="secondary" style={{ fontSize: 12 }}>解决方法</Text>
+            <Input.TextArea value={editAnswer} onChange={e => setEditAnswer(e.target.value)} rows={8} style={{ marginTop: 4, fontSize: 13 }} />
+          </div>
+        </div>
+      </Modal>
+
+      {/* 上传文档弹窗 */}
+      <Modal
+        title="上传文档"
+        open={uploadModal}
+        onCancel={() => setUploadModal(false)}
+        footer={null}
+        width={500}
+      >
+        <Empty description={
+          <div>
+            <Text type="secondary">文档上传功能需要后端支持。</Text>
+            <br />
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              当前请手动将 .md 文件放入 knowledge/ 对应部门目录下，然后调用 /api/rebuild 重建索引。
+            </Text>
+          </div>
+        } />
       </Modal>
     </div>
   );

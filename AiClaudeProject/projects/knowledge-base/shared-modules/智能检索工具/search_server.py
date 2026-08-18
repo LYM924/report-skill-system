@@ -29,6 +29,27 @@ SEARCH_COUNTER = {  # 搜索统计计数器
     "ai_summaries": 0,
 }
 
+COUNTER_FILE = HERE / "search_counter.json"
+
+def load_counter():
+    """加载持久化的搜索计数器"""
+    if COUNTER_FILE.exists():
+        try:
+            with open(COUNTER_FILE, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+            SEARCH_COUNTER.update(saved)
+        except Exception:
+            pass
+
+def save_counter():
+    """持久化搜索计数器"""
+    try:
+        with open(COUNTER_FILE, "w", encoding="utf-8") as f:
+            json.dump(SEARCH_COUNTER, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
 def get_engine():
     global engine
     if engine is None:
@@ -86,6 +107,9 @@ class SearchHandler(SimpleHTTPRequestHandler):
             month_key = f"month_{datetime.datetime.now().month}"
             SEARCH_COUNTER[month_key] = SEARCH_COUNTER.get(month_key, 0) + 1
 
+            # 持久化计数器（每次搜索保存）
+            save_counter()
+
             eng = get_engine()
 
             # 0. 先查 FAQ 缓存
@@ -93,6 +117,8 @@ class SearchHandler(SimpleHTTPRequestHandler):
             if cached:
                 SEARCH_COUNTER["faq_hits"] = SEARCH_COUNTER.get("faq_hits", 0) + 1
                 SEARCH_COUNTER[f"faq_month_{datetime.datetime.now().month}"] = SEARCH_COUNTER.get(f"faq_month_{datetime.datetime.now().month}", 0) + 1
+                # 持久化计数器
+                save_counter()
                 result = {
                     "query": query,
                     "tokens": list(jieba.cut(query)),
@@ -219,6 +245,7 @@ class SearchHandler(SimpleHTTPRequestHandler):
                 return
 
             SEARCH_COUNTER["ai_summaries"] = SEARCH_COUNTER.get("ai_summaries", 0) + 1
+            save_counter()
             self._handle_claude_stream(query, context, api_key)
             return
         elif parsed.path == "/api/stats":
@@ -422,6 +449,7 @@ tickets: []
                 "messages": [{"role": "user", "content": message}],
             }
             SEARCH_COUNTER["ai_summaries"] = SEARCH_COUNTER.get("ai_summaries", 0) + 1
+            save_counter()
             self._handle_claude_stream(message, context, api_key)
             return
         elif parsed.path == "/api/trends":
@@ -523,6 +551,53 @@ tickets: []
                     "path": doc["path"],
                 })
             self._json({"recent": recent})
+        elif parsed.path == "/api/reports":
+            """返回报表数据列表"""
+            eng = get_engine()
+            params = parse_qs(parsed.query)
+            page = int(params.get("page", ["1"])[0])
+            page_size = min(int(params.get("page_size", ["20"])[0]), 100)
+            all_reports = eng.report_docs
+            total = len(all_reports)
+            start = (page - 1) * page_size
+            reports = []
+            for doc in all_reports[start:start + page_size]:
+                reports.append({
+                    "id": hash(doc["path"]) % 10000,
+                    "title": doc.get("title", doc["path"].split("/")[-1]),
+                    "path": doc["path"],
+                    "dept": doc.get("dept", ""),
+                    "snippets": doc.get("snippets", []),
+                })
+            self._json({"reports": reports, "total": total, "page": page, "page_size": page_size})
+        elif parsed.path == "/api/faq/similar":
+            """根据关键词推荐相似 FAQ"""
+            params = parse_qs(parsed.query)
+            keywords = params.get("keywords", [""])[0]
+            if not keywords:
+                self._json({"faqs": []})
+                return
+            eng = get_engine()
+            kw_list = [k.strip() for k in keywords.split(",") if k.strip()]
+            scored = []
+            for faq in eng.faq_docs:
+                score = 0
+                for kw in kw_list:
+                    if kw in faq.get("title", ""):
+                        score += 3
+                    for fkw in faq.get("keywords", []):
+                        if kw in fkw:
+                            score += 2
+                if score > 0:
+                    scored.append({
+                        "id": faq.get("faq_id", ""),
+                        "title": faq.get("title", ""),
+                        "keywords": faq.get("keywords", []),
+                        "dept": faq.get("dept", ""),
+                        "score": score,
+                    })
+            scored.sort(key=lambda x: x["score"], reverse=True)
+            self._json({"faqs": scored[:5]})
         else:
             super().do_GET()
 
@@ -699,6 +774,7 @@ tickets: []
 
 
 def main():
+    load_counter()
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
     server = ThreadingHTTPServer(("0.0.0.0", port), SearchHandler)
     print(f"\n  产品知识库搜索服务已启动")

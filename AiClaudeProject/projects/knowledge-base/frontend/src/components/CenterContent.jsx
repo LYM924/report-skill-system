@@ -59,22 +59,47 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
       // Re-trigger AI summary by toggling stream URL
       onSearchResultsChange({ ...searchResults });
     } else if (key === 'auto_link') {
-      if (!searchResults?.results?.length) {
+      if (!searchQuery.trim()) {
         setQuickActionMsg('请先搜索后再使用自动关联文档');
         setTimeout(() => setQuickActionMsg(null), 3000);
         return;
       }
-      setQuickActionMsg(`已找到 ${searchResults.results.length} 条关联文档`);
-      setTimeout(() => setQuickActionMsg(null), 3000);
+      // 扩展搜索，展示关联文档
+      setQuickActionMsg('正在搜索关联文档...');
+      searchKnowledge(searchQuery.trim(), 'doc').then(results => {
+        if (results?.results?.length) {
+          onSearchResultsChange(results);
+          setQuickActionMsg(`已找到 ${results.results.length} 条关联文档`);
+        } else {
+          setQuickActionMsg('未找到关联文档');
+        }
+        setTimeout(() => setQuickActionMsg(null), 3000);
+      });
     } else if (key === 'similar') {
       if (!searchQuery.trim()) {
         setQuickActionMsg('请先输入搜索关键词');
         setTimeout(() => setQuickActionMsg(null), 3000);
         return;
       }
+      const kw = (searchResults?.tokens || [searchQuery.trim()]).join(',');
       setQuickActionMsg('正在匹配相似问题...');
-      setTimeout(() => setQuickActionMsg('找到 3 个相似 FAQ，请查看右侧面板'), 1000);
-      setTimeout(() => setQuickActionMsg(null), 4000);
+      fetch(`/api/faq/similar?keywords=${encodeURIComponent(kw)}`)
+        .then(r => r.json())
+        .then(data => {
+          const faqs = data?.faqs || [];
+          if (faqs.length > 0) {
+            setQuickActionMsg(`找到 ${faqs.length} 个相似 FAQ，请查看右侧面板`);
+            // 取第一个 FAQ 展示在右侧面板
+            onSelectDoc({ ...faqs[0], title: faqs[0].title });
+          } else {
+            setQuickActionMsg('未找到相似 FAQ');
+          }
+          setTimeout(() => setQuickActionMsg(null), 4000);
+        })
+        .catch(() => {
+          setQuickActionMsg('匹配失败，请重试');
+          setTimeout(() => setQuickActionMsg(null), 3000);
+        });
     } else if (key === 'ticket_deposit') {
       if (!searchQuery.trim()) {
         setQuickActionMsg('请先搜索后再使用工单知识沉淀');
