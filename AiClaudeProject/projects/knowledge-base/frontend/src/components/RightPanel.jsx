@@ -7,7 +7,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Typography, Empty, Tag, Avatar, Row, Col, Button, Spin, Divider } from 'antd';
+import { Typography, Empty, Tag, Avatar, Row, Col, Button, Spin, Divider, Image } from 'antd';
 import {
   QuestionCircleOutlined, FileTextOutlined, ClockCircleOutlined,
   RightOutlined, ArrowLeftOutlined,
@@ -67,13 +67,13 @@ function SimpleMarkdown({ content }) {
       }
 
       if (match[1] !== undefined) {
-        // 图片
+        // 图片 - 使用 Ant Design Image 支持点击放大预览
         parts.push(
-          <img
+          <Image
             key={key++}
             src={match[2]}
             alt={match[1]}
-            style={{ maxWidth: '100%', borderRadius: 6, margin: '8px 0', display: 'block' }}
+            style={{ maxWidth: '100%', borderRadius: 6, margin: '8px 0' }}
           />
         );
       } else if (match[3] !== undefined) {

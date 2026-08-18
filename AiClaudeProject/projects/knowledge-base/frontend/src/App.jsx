@@ -5,7 +5,7 @@
  * 核心定位：企业AI赋能的知识沉淀平台
  */
 
-import React, { useState } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Layout, ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import TopNav from './components/TopNav';
@@ -24,6 +24,36 @@ function App() {
   const [searchResults, setSearchResults] = useState(null);
   const [selectedDoc, setSelectedDoc] = useState(null); // 右侧面板选中的文档
   const [searchScope, setSearchScope] = useState('all'); // 左侧栏联动搜索范围
+
+  // 右侧面板可拖拽调整宽度
+  const [rightWidth, setRightWidth] = useState(320);
+  const resizing = useRef(false);
+
+  const handleResizeStart = useCallback((e) => {
+    e.preventDefault();
+    resizing.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, []);
+
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (!resizing.current) return;
+      const newWidth = window.innerWidth - e.clientX;
+      setRightWidth(Math.max(280, Math.min(600, newWidth)));
+    };
+    const handleMouseUp = () => {
+      resizing.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
 
   // 左侧栏点击 → 更新筛选范围
   const handleNavChange = (key) => {
@@ -102,12 +132,26 @@ function App() {
           </Content>
 
           {/* ===== 右侧信息看板 ===== */}
-          <Sider width={320} style={{ background: '#fff', borderLeft: '1px solid #e2e8f0', overflow: 'hidden' }}>
-            <RightPanel
-              selectedDoc={selectedDoc}
-              onClearDoc={() => setSelectedDoc(null)}
+          <div style={{ position: 'relative', display: 'flex', flexShrink: 0 }}>
+            {/* 拖拽手柄 */}
+            <div
+              onMouseDown={handleResizeStart}
+              style={{
+                width: 6, cursor: 'col-resize',
+                background: 'transparent',
+                transition: 'background 0.15s',
+                position: 'absolute', left: -3, top: 0, bottom: 0, zIndex: 10,
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(13,148,136,0.15)'}
+              onMouseLeave={e => { if (!resizing.current) e.currentTarget.style.background = 'transparent'; }}
             />
-          </Sider>
+            <Sider width={rightWidth} style={{ background: '#fff', borderLeft: '1px solid #e2e8f0', overflow: 'hidden' }}>
+              <RightPanel
+                selectedDoc={selectedDoc}
+                onClearDoc={() => setSelectedDoc(null)}
+              />
+            </Sider>
+          </div>
         </Layout>
       </Layout>
     </ConfigProvider>
