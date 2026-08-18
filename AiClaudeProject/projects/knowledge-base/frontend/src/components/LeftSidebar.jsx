@@ -8,20 +8,18 @@
  * - 部门知识（可展开）: 一级部门 → 二级部门 → 三级部门
  */
 
-import React from 'react';
-import { Menu, Button } from 'antd';
+import React, { useState, useEffect } from 'react';
+import { Menu, Button, Spin } from 'antd';
 import {
   FolderOpenOutlined, AppstoreOutlined, ApartmentOutlined,
   FileTextOutlined, TeamOutlined, QuestionCircleOutlined,
   BugOutlined, MenuFoldOutlined, MenuUnfoldOutlined,
 } from '@ant-design/icons';
-import menuData from '../data/menuData.json';
-
-const { productModules, businessModules, deptKnowledge } = menuData;
 
 /** 构建产品模块子菜单 */
-function buildProductChildren() {
-  return Object.entries(productModules).map(([line, products]) => ({
+function buildProductChildren(menuData) {
+  if (!menuData?.productModules) return [];
+  return Object.entries(menuData.productModules).map(([line, products]) => ({
     key: `prod-${line}`,
     label: line,
     children: Object.entries(products).map(([prod, modules]) => ({
@@ -36,8 +34,9 @@ function buildProductChildren() {
 }
 
 /** 构建业务模块子菜单 */
-function buildBizChildren() {
-  return Object.entries(businessModules).map(([domain, lines]) => {
+function buildBizChildren(menuData) {
+  if (!menuData?.businessModules) return [];
+  return Object.entries(menuData.businessModules).map(([domain, lines]) => {
     const totalMods = Object.values(lines).reduce(
       (sum, prods) => sum + Object.values(prods).reduce((s, mods) => s + mods.length, 0), 0
     );
@@ -61,8 +60,9 @@ function buildBizChildren() {
 }
 
 /** 构建部门知识子菜单 */
-function buildDeptChildren() {
-  return Object.entries(deptKnowledge).map(([d1, d2s]) => {
+function buildDeptChildren(menuData) {
+  if (!menuData?.deptKnowledge) return [];
+  return Object.entries(menuData.deptKnowledge).map(([d1, d2s]) => {
     const totalD1 = Object.values(d2s).reduce(
       (sum, d3s) => sum + Object.values(d3s).reduce((s, mods) => s + mods.length, 0), 0
     );
@@ -100,31 +100,50 @@ function buildDeptChildren() {
   });
 }
 
-const allMenuItems = [
-  { key: 'all', label: '全部知识', icon: <FolderOpenOutlined /> },
-  {
-    key: 'dept-knowledge',
-    label: '部门知识',
-    icon: <TeamOutlined />,
-    children: buildDeptChildren(),
-  },
-  {
-    key: 'business-modules',
-    label: '业务模块',
-    icon: <ApartmentOutlined />,
-    children: buildBizChildren(),
-  },
-  {
-    key: 'product-modules',
-    label: '产品模块',
-    icon: <AppstoreOutlined />,
-    children: buildProductChildren(),
-  },
-  { key: 'ticket', label: '工单知识', icon: <FileTextOutlined /> },
-  { key: 'faq', label: 'FAQ库', icon: <QuestionCircleOutlined /> },
-];
-
 function LeftSidebar({ selectedNav, onNavChange, collapsed, onToggleCollapse }) {
+  const [menuData, setMenuData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/menu')
+      .then(r => r.json())
+      .then(data => {
+        setMenuData(data);
+        setLoading(false);
+      })
+      .catch(() => {
+        setMenuData({ productModules: {}, businessModules: {}, deptKnowledge: {} });
+        setLoading(false);
+      });
+  }, []);
+
+  const allMenuItems = React.useMemo(() => {
+    if (!menuData) return [];
+    return [
+      { key: 'all', label: '全部知识', icon: <FolderOpenOutlined /> },
+      {
+        key: 'dept-knowledge',
+        label: '部门知识',
+        icon: <TeamOutlined />,
+        children: buildDeptChildren(menuData),
+      },
+      {
+        key: 'business-modules',
+        label: '业务模块',
+        icon: <ApartmentOutlined />,
+        children: buildBizChildren(menuData),
+      },
+      {
+        key: 'product-modules',
+        label: '产品模块',
+        icon: <AppstoreOutlined />,
+        children: buildProductChildren(menuData),
+      },
+      { key: 'ticket', label: '工单知识', icon: <FileTextOutlined /> },
+      { key: 'faq', label: 'FAQ库', icon: <QuestionCircleOutlined /> },
+    ];
+  }, [menuData]);
+
   const handleClick = ({ key }) => {
     onNavChange(key);
   };
@@ -147,14 +166,20 @@ function LeftSidebar({ selectedNav, onNavChange, collapsed, onToggleCollapse }) 
 
       {/* 菜单 */}
       <div style={{ flex: 1, overflow: 'auto' }}>
-        <Menu
-          mode="inline"
-          inlineCollapsed={collapsed}
-          selectedKeys={[selectedNav]}
-          onClick={handleClick}
-          items={allMenuItems}
-          style={{ background: 'transparent', borderRight: 'none', paddingTop: 4 }}
-        />
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '40px 0' }}>
+            <Spin />
+          </div>
+        ) : (
+          <Menu
+            mode="inline"
+            inlineCollapsed={collapsed}
+            selectedKeys={[selectedNav]}
+            onClick={handleClick}
+            items={allMenuItems}
+            style={{ background: 'transparent', borderRight: 'none', paddingTop: 4 }}
+          />
+        )}
       </div>
     </div>
   );

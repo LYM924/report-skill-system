@@ -416,6 +416,62 @@ tickets: []
             hot = SEARCH_COUNTER.get("hotwords", {})
             sorted_hot = sorted(hot.items(), key=lambda x: x[1], reverse=True)[:10]
             self._json({"hotwords": [{"word": w, "count": c} for w, c in sorted_hot]})
+        elif parsed.path == "/api/menu":
+            """返回左侧菜单树数据（从 product_module.xlsx 生成）"""
+            import pandas as pd
+            from collections import defaultdict
+
+            xlsx_path = PROJECT_DIR / "其他文档区" / "product_module.xlsx"
+            if not xlsx_path.exists():
+                self._json({"error": "product_module.xlsx 不存在"})
+                return
+
+            df = pd.read_excel(xlsx_path)
+
+            # 产品模块树: 产品线 → 产品 → 模块
+            product_tree = defaultdict(lambda: defaultdict(list))
+            for _, row in df.iterrows():
+                line = str(row['所属产品线']) if pd.notna(row['所属产品线']) else '未分类'
+                prod = str(row['所属产品']) if pd.notna(row['所属产品']) else '未分类'
+                mod = str(row['模块名称']) if pd.notna(row['模块名称']) else ''
+                if mod:
+                    product_tree[line][prod].append({
+                        'name': mod,
+                        'desc': str(row['模块描述']) if pd.notna(row['模块描述']) else '',
+                        'owner': str(row['模块负责人']) if pd.notna(row['模块负责人']) else '',
+                        'dev_owner': str(row['研发负责人']) if pd.notna(row['研发负责人']) else '',
+                    })
+
+            # 业务模块树: 领域 → 产品线 → 产品 → 模块
+            biz_tree = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+            for _, row in df.iterrows():
+                domain = str(row['所属领域']) if pd.notna(row['所属领域']) else '未分类'
+                line = str(row['所属产品线']) if pd.notna(row['所属产品线']) else '未分类'
+                prod = str(row['所属产品']) if pd.notna(row['所属产品']) else '未分类'
+                mod = str(row['模块名称']) if pd.notna(row['模块名称']) else ''
+                if mod:
+                    biz_tree[domain][line][prod].append(mod)
+
+            # 部门知识树: 一级部门 → 二级部门 → 三级部门
+            dept_tree = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+            for _, row in df.iterrows():
+                d1 = str(row['模块关联一级部门']) if pd.notna(row['模块关联一级部门']) else '未分类'
+                d2 = str(row['模块关联二级部门']) if pd.notna(row['模块关联二级部门']) else '未分类'
+                d3 = str(row['模块关联部门']) if pd.notna(row['模块关联部门']) else '未分类'
+                mod = str(row['模块名称']) if pd.notna(row['模块名称']) else ''
+                if mod:
+                    dept_tree[d1][d2][d3].append(mod)
+
+            def convert(d):
+                if isinstance(d, defaultdict):
+                    return {k: convert(v) for k, v in d.items()}
+                return d
+
+            self._json({
+                'productModules': convert(product_tree),
+                'businessModules': convert(biz_tree),
+                'deptKnowledge': convert(dept_tree),
+            })
         elif parsed.path == "/api/recent":
             """返回最近更新的文档"""
             eng = get_engine()
