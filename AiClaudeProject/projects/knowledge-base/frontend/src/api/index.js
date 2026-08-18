@@ -206,3 +206,10 @@ export async function getHotwords() {
 export async function getRecent() {
   return await apiFetch('/recent');
 }
+
+/**
+ * 获取报表列表
+ */
+export async function getReports(page = 1) {
+  return await apiFetch('/reports', { page, page_size: 20 });
+}
