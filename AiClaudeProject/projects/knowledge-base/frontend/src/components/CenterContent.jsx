@@ -123,6 +123,7 @@ function AISummaryPanel({ streamUrl }) {
   const [error, setError] = useState(null);
   const [deepMode, setDeepMode] = useState(false);
   const abortRef = useRef(null);
+  const lastStreamUrlRef = useRef(null); // 防止 Tab 切换回来自动重触发
 
   const startStream = useCallback((url) => {
     const abort = streamClaudeSummary(url, {
@@ -142,9 +143,13 @@ function AISummaryPanel({ streamUrl }) {
     return abort;
   }, []);
 
-  // 自动触发摘要
+  // 自动触发摘要（仅首次挂载或 streamUrl 变化时）
   useEffect(() => {
     if (!streamUrl) return;
+    // 如果是同一个 streamUrl（Tab 切换后重新挂载），跳过
+    if (lastStreamUrlRef.current === streamUrl) return;
+    lastStreamUrlRef.current = streamUrl;
+
     setSummary('');
     setDone(false);
     setError(null);
@@ -153,7 +158,9 @@ function AISummaryPanel({ streamUrl }) {
 
     const abort = startStream(streamUrl);
 
-    return () => abort();
+    return () => {
+      abortRef.current?.(); // 卸载时中止当前流（包括深度分析）
+    };
   }, [streamUrl, startStream]);
 
   // 深度分析
