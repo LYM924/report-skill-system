@@ -852,10 +852,25 @@ function DeptBrowser({ dept, isDark, onSelectDoc }) {
                 )),
               },
               {
-                title: '置信度', dataIndex: 'confidence', key: 'confidence', width: 70, align: 'center',
+                title: '置信度', dataIndex: 'confidence', key: 'confidence', width: 80, align: 'center',
                 render: val => <span style={{ color: '#0D9488', fontWeight: 500 }}>{val}%</span>,
               },
             ]}
+            components={{
+              header: {
+                cell: (props) => (
+                  <th {...props} style={{
+                    ...props.style,
+                    background: isDark ? '#252525' : '#f5f7fa',
+                    color: isDark ? '#bbb' : '#606266',
+                    fontWeight: 500,
+                    fontSize: 14,
+                    whiteSpace: 'nowrap',
+                    padding: '12px 10px',
+                  }} />
+                ),
+              },
+            }}
           />
         )}
       </Card>
