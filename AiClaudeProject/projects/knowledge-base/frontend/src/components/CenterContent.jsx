@@ -771,9 +771,10 @@ function ReportBrowser({ isDark, onSelectDoc }) {
 function DeptBrowser({ dept, isDark, onSelectDoc }) {
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [searchFilter, setSearchFilter] = useState('');
 
   useEffect(() => {
-    fetch(`/api/documents?module=${encodeURIComponent(dept)}&page_size=100`)
+    fetch(`/api/documents?module=${encodeURIComponent(dept)}&page_size=200`)
       .then(r => r.json())
       .then(data => {
         setDocs(data?.documents || []);
@@ -782,50 +783,76 @@ function DeptBrowser({ dept, isDark, onSelectDoc }) {
       .catch(() => setLoading(false));
   }, [dept]);
 
+  const filteredDocs = searchFilter
+    ? docs.filter(d => d.name.includes(searchFilter) || d.dept.includes(searchFilter))
+    : docs;
+
   return (
     <div style={{ width: '100%' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-        <TeamOutlined style={{ fontSize: 20, color: '#0D9488' }} />
-        <Text strong style={{ fontSize: 18, color: isDark ? '#e5e5e5' : '#1e293b' }}>
-          {dept} · 知识文档 ({docs.length})
+      {/* 标题栏 */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+        <Text strong style={{ fontSize: 22, fontWeight: 600, color: isDark ? '#e5e5e5' : '#222' }}>
+          文档检索结果
         </Text>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          <div style={{ display: 'flex', border: '1px solid #dcdfe6', borderRadius: 8, overflow: 'hidden' }}>
+            <Input
+              placeholder="搜索"
+              value={searchFilter}
+              onChange={e => setSearchFilter(e.target.value)}
+              style={{ border: 'none', width: 200, outline: 'none' }}
+            />
+            <Button type="text" icon={<SearchOutlined />} style={{ border: 'none' }} />
+          </div>
+          <Text type="secondary" style={{ fontSize: 13 }}>
+            {dept} · {filteredDocs.length} 条文档
+          </Text>
+        </div>
       </div>
-      {loading ? (
-        <Spin />
-      ) : docs.length === 0 ? (
-        <Empty description="该部门暂无知识文档" />
-      ) : (
-        <Card style={{ borderRadius: 12, border: `1px solid ${isDark ? '#303030' : '#e2e8f0'}` }}>
-          {docs.map((doc, i) => (
-            <div
-              key={doc.id || i}
-              onClick={() => onSelectDoc({ ...doc, title: doc.name, path: doc.path })}
-              style={{
-                padding: '14px 16px',
-                borderBottom: i < docs.length - 1 ? `1px solid ${isDark ? '#303030' : '#f0f0f0'}` : 'none',
-                cursor: 'pointer',
-                transition: 'background 0.15s',
-              }}
-              onMouseEnter={e => e.currentTarget.style.background = isDark ? '#222' : '#fafafa'}
-              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <FileTextOutlined style={{ color: '#2563EB', fontSize: 14, flexShrink: 0 }} />
-                <div style={{ flex: 1 }}>
-                  <Text strong style={{ fontSize: 14, color: isDark ? '#e5e5e5' : '#1e293b' }}>
-                    {doc.name}
-                  </Text>
-                  <div style={{ marginTop: 4, display: 'flex', gap: 8, fontSize: 12, color: '#999' }}>
-                    <span>{doc.product || '-'}</span>
-                    <span>更新: {doc.updated}</span>
-                  </div>
-                </div>
-                <RightOutlined style={{ color: '#ccc', fontSize: 12 }} />
-              </div>
-            </div>
-          ))}
-        </Card>
-      )}
+
+      {/* 文档表格 */}
+      <Card style={{ borderRadius: 12, border: `1px solid ${isDark ? '#303030' : '#e2e8f0'}`, padding: 0 }} styles={{ body: { padding: 0 } }}>
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
+        ) : filteredDocs.length === 0 ? (
+          <Empty description="该部门暂无知识文档" style={{ padding: '40px 0' }} />
+        ) : (
+          <Table
+            dataSource={filteredDocs}
+            rowKey="id"
+            size="middle"
+            pagination={{ pageSize: 15, size: 'small', showTotal: t => `共 ${t} 条` }}
+            onRow={(record) => ({
+              onClick: () => onSelectDoc({ ...record, title: record.name, path: record.path }),
+              style: { cursor: 'pointer' },
+            })}
+            columns={[
+              {
+                title: '文档名称', dataIndex: 'name', key: 'name',
+                render: text => <Text strong style={{ fontSize: 14, color: isDark ? '#e5e5e5' : '#303133' }}>{text}</Text>,
+              },
+              {
+                title: '所属部门', dataIndex: 'dept', key: 'dept',
+                render: text => <span style={{ color: isDark ? '#bbb' : '#606266' }}>{text || '-'}</span>,
+              },
+              {
+                title: '更新时间', dataIndex: 'updated', key: 'updated', width: 120,
+                render: text => <span style={{ color: isDark ? '#bbb' : '#606266' }}>{text || '-'}</span>,
+              },
+              {
+                title: '关键词', dataIndex: 'keywords', key: 'keywords',
+                render: arr => (arr || []).slice(0, 4).map(k => (
+                  <Tag key={k} style={{ fontSize: 10, borderRadius: 4, margin: '1px 3px', background: 'rgba(13,148,136,0.06)', color: '#0D9488', border: 'none' }}>{k}</Tag>
+                )),
+              },
+              {
+                title: '置信度', dataIndex: 'confidence', key: 'confidence', width: 80, align: 'center',
+                render: val => <span style={{ color: '#0D9488', fontWeight: 500 }}>{val}%</span>,
+              },
+            ]}
+          />
+        )}
+      </Card>
     </div>
   );
 }

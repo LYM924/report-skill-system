@@ -346,12 +346,21 @@ class SearchHandler(SimpleHTTPRequestHandler):
                 name = doc.get("title", doc["path"].split("/")[-1].replace(".md", ""))
                 dept = doc.get("dept", "")
                 product = doc.get("domain", "")
-                # 尝试从文件获取真实修改时间
                 doc_path = PROJECT_DIR / doc["path"]
                 updated = "2026-08-10"
                 if doc_path.exists():
                     mtime = doc_path.stat().st_mtime
                     updated = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
+                # 提取文档关键词（从内容中匹配关键词索引，取前5个高频词）
+                keywords = []
+                content_sample = doc.get("content_sample", "")
+                if content_sample:
+                    from collections import Counter
+                    kw_counter = Counter()
+                    for kw in eng.keyword_map:
+                        if kw in content_sample:
+                            kw_counter[kw] = content_sample.count(kw)
+                    keywords = [kw for kw, _ in kw_counter.most_common(5)]
                 docs.append({
                     "id": hash(doc["path"]) % 10000,
                     "name": name,
@@ -359,6 +368,7 @@ class SearchHandler(SimpleHTTPRequestHandler):
                     "product": product,
                     "dept": dept,
                     "updated": updated,
+                    "keywords": keywords,
                     "confidence": 85 + (hash(doc["path"]) % 10),
                 })
             self._json({"documents": docs, "total": total, "page": page, "page_size": page_size})
