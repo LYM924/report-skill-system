@@ -319,6 +319,29 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
                 ))}
               </div>
             )}
+            {showSuggestions && suggestions.length > 0 && !searchResults && (
+              <div style={{
+                position: 'absolute', top: '100%', left: 0, right: 0,
+                background: '#fff', border: '1px solid #e2e8f0', borderRadius: '0 0 8px 8px',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.08)', zIndex: 10, overflow: 'hidden',
+              }}>
+                {suggestions.map((s, i) => (
+                  <div
+                    key={i}
+                    onMouseDown={() => { setSearchQuery(s); handleSearch(s); setShowSuggestions(false); }}
+                    style={{
+                      padding: '8px 12px', fontSize: 13, cursor: 'pointer',
+                      borderBottom: i < suggestions.length - 1 ? '1px solid #f5f5f5' : 'none',
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <SearchOutlined style={{ color: '#999', fontSize: 12, marginRight: 8 }} />
+                    {s}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <Button
             type="primary"
@@ -469,6 +492,13 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
                   ))}
                 </div>
               )}
+            {hasResults && searchResults?.has_more && (
+              <div style={{ textAlign: 'center', padding: '12px 0' }}>
+                <Button onClick={handleLoadMore} loading={searching} style={{ borderRadius: 8 }}>
+                  加载更多...
+                </Button>
+              </div>
+            )}
             </div>
           ) : (
             <Empty
