@@ -142,7 +142,7 @@ function SimpleMarkdown({ content }) {
       }
       // 跳过分隔行
       if (line.match(/^\|[\s\-:|]+\|$/)) continue;
-      const cells = line.split('|').filter(c => c.trim()).map(c => c.trim());
+      const cells = line.split('|').slice(1, -1).map(c => c.trim());
       tableRows.push(cells);
       continue;
     } else if (inTable) {
