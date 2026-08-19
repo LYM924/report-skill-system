@@ -341,6 +341,21 @@ function LogViewer() {
         <Text strong style={{ fontSize: 15 }}>系统日志</Text>
         <Button size="small" onClick={loadLogs} loading={loading}>刷新</Button>
       </div>
+      {/* 颜色图例 */}
+      <div style={{ display: 'flex', gap: 16, marginBottom: 12, flexWrap: 'wrap' }}>
+        {[
+          { color: '#f87171', label: '错误 ERROR' },
+          { color: '#60a5fa', label: '搜索 SEARCH' },
+          { color: '#4ade80', label: 'FAQ操作' },
+          { color: '#fbbf24', label: '服务启动' },
+          { color: '#94a3b8', label: '常规日志' },
+        ].map(item => (
+          <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#666' }}>
+            <div style={{ width: 10, height: 10, borderRadius: 2, background: item.color }} />
+            {item.label}
+          </div>
+        ))}
+      </div>
       {loading ? (
         <Spin />
       ) : logs.length === 0 ? (
