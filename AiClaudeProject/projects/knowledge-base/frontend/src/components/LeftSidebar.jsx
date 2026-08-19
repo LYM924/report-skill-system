@@ -59,7 +59,7 @@ function buildBizChildren(menuData) {
   });
 }
 
-/** 构建部门知识子菜单 */
+/** 构建部门知识子菜单（只到二级部门，点击后在中间面板展示文档） */
 function buildDeptChildren(menuData) {
   if (!menuData?.deptKnowledge) return [];
   return Object.entries(menuData.deptKnowledge).map(([d1, d2s]) => {
@@ -69,31 +69,12 @@ function buildDeptChildren(menuData) {
     return {
       key: `dept-${d1}`,
       label: `${d1} (${totalD1})`,
+      icon: <TeamOutlined />,
       children: Object.entries(d2s).map(([d2, d3s]) => {
         const totalD2 = Object.values(d3s).reduce((s, mods) => s + mods.length, 0);
-        const d3Keys = Object.keys(d3s);
-        const skipD3 = d3Keys.length === 1 && d3Keys[0] === '未分类';
-        if (skipD3) {
-          return {
-            key: `dept-${d1}-${d2}`,
-            label: `${d2} (${totalD2})`,
-            children: d3s['未分类'].map((name) => ({
-              key: `dept-${d1}-${d2}-${name}`,
-              label: name,
-            })),
-          };
-        }
         return {
-          key: `dept-${d1}-${d2}`,
+          key: `dept-browse-${d2}`,
           label: `${d2} (${totalD2})`,
-          children: Object.entries(d3s).map(([d3, mods]) => ({
-            key: `dept-${d1}-${d2}-${d3}`,
-            label: `${d3} (${mods.length})`,
-            children: mods.map((name) => ({
-              key: `dept-${d1}-${d2}-${d3}-${name}`,
-              label: name,
-            })),
-          })),
         };
       }),
     };

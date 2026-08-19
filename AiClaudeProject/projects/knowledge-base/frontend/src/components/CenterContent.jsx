@@ -22,7 +22,7 @@ import {
   SearchOutlined, RobotOutlined, LinkOutlined, FileSearchOutlined, CloudUploadOutlined,
   BulbOutlined, LoadingOutlined, HistoryOutlined, CloseOutlined,
   FileTextOutlined, QuestionCircleOutlined, BarChartOutlined, RightOutlined,
-  InfoCircleOutlined,
+  InfoCircleOutlined, TeamOutlined,
 } from '@ant-design/icons';
 import { searchKnowledge, getDashboardStats, getDocuments } from '../api';
 import AISummaryPanel from './AISummaryPanel';
@@ -250,6 +250,12 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
   // 报表数据浏览（左侧菜单 报表数据 触发）
   if (selectedNav === 'reports') {
     return <ReportBrowser isDark={isDark} onSelectDoc={onSelectDoc} />;
+  }
+
+  // 部门知识浏览（左侧部门知识点击二级部门触发）
+  if (selectedNav && selectedNav.startsWith('dept-browse-')) {
+    const dept = selectedNav.replace('dept-browse-', '');
+    return <DeptBrowser dept={dept} isDark={isDark} onSelectDoc={onSelectDoc} />;
   }
 
   return (
@@ -748,6 +754,69 @@ function ReportBrowser({ isDark, onSelectDoc }) {
                       {r.snippets.join(' ... ')}
                     </Paragraph>
                   )}
+                </div>
+                <RightOutlined style={{ color: '#ccc', fontSize: 12 }} />
+              </div>
+            </div>
+          ))}
+        </Card>
+      )}
+    </div>
+  );
+}
+
+/** 部门知识浏览组件 */
+function DeptBrowser({ dept, isDark, onSelectDoc }) {
+  const [docs, setDocs] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(`/api/documents?module=${encodeURIComponent(dept)}&page_size=100`)
+      .then(r => r.json())
+      .then(data => {
+        setDocs(data?.documents || []);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, [dept]);
+
+  return (
+    <div style={{ width: '100%' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+        <TeamOutlined style={{ fontSize: 20, color: '#0D9488' }} />
+        <Text strong style={{ fontSize: 18, color: isDark ? '#e5e5e5' : '#1e293b' }}>
+          {dept} · 知识文档 ({docs.length})
+        </Text>
+      </div>
+      {loading ? (
+        <Spin />
+      ) : docs.length === 0 ? (
+        <Empty description="该部门暂无知识文档" />
+      ) : (
+        <Card style={{ borderRadius: 12, border: `1px solid ${isDark ? '#303030' : '#e2e8f0'}` }}>
+          {docs.map((doc, i) => (
+            <div
+              key={doc.id || i}
+              onClick={() => onSelectDoc({ ...doc, title: doc.name, path: doc.path })}
+              style={{
+                padding: '14px 16px',
+                borderBottom: i < docs.length - 1 ? `1px solid ${isDark ? '#303030' : '#f0f0f0'}` : 'none',
+                cursor: 'pointer',
+                transition: 'background 0.15s',
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = isDark ? '#222' : '#fafafa'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <FileTextOutlined style={{ color: '#2563EB', fontSize: 14, flexShrink: 0 }} />
+                <div style={{ flex: 1 }}>
+                  <Text strong style={{ fontSize: 14, color: isDark ? '#e5e5e5' : '#1e293b' }}>
+                    {doc.name}
+                  </Text>
+                  <div style={{ marginTop: 4, display: 'flex', gap: 8, fontSize: 12, color: '#999' }}>
+                    <span>{doc.product || '-'}</span>
+                    <span>更新: {doc.updated}</span>
+                  </div>
                 </div>
                 <RightOutlined style={{ color: '#ccc', fontSize: 12 }} />
               </div>
