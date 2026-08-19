@@ -4,9 +4,9 @@
  * 知识管理主页，包含 FAQ 草稿管理、上传文档、编辑 FAQ、重建索引、
  * 关键词管理等功能入口。草稿数据存储在 localStorage 中。
  */
-import React, { useState } from 'react';
-import { Typography, Card, Row, Col, Table, Tag, Button, Empty, Modal, Select, Input } from 'antd';
-import { CloudUploadOutlined, QuestionCircleOutlined, ReloadOutlined, SearchOutlined, BugOutlined } from '@ant-design/icons';
+import React, { useState, useEffect } from 'react';
+import { Typography, Card, Row, Col, Table, Tag, Button, Empty, Modal, Select, Input, Spin } from 'antd';
+import { CloudUploadOutlined, QuestionCircleOutlined, ReloadOutlined, SearchOutlined, BugOutlined, FileTextOutlined } from '@ant-design/icons';
 import { saveFAQ, deleteFAQ } from '../api';
 
 const { Text } = Typography;
@@ -118,6 +118,7 @@ function ManagePanel({ isDark }) {
     { key: 'upload', title: '上传文档', desc: '上传 Markdown 或 Word 文档到知识库', icon: <CloudUploadOutlined /> },
     { key: 'faq', title: '编辑 FAQ', desc: '管理和编辑 FAQ 知识库条目', icon: <QuestionCircleOutlined /> },
     { key: 'rebuild', title: '重建索引', desc: '重新构建搜索引擎索引', icon: <ReloadOutlined /> },
+    { key: 'logs', title: '系统日志', desc: '查看服务运行日志', icon: <FileTextOutlined /> },
     { key: 'keywords', title: '关键词管理', desc: '管理搜索关键词和同义词', icon: <SearchOutlined /> },
   ];
 
@@ -206,6 +207,9 @@ function ManagePanel({ isDark }) {
           )}
         </Card>
       )}
+
+      {/* 系统日志 */}
+      {activeSection === 'logs' && <LogViewer />}
 
       {/* 其他 section 占位 */}
       {activeSection !== 'drafts' && (
@@ -312,3 +316,53 @@ function ManagePanel({ isDark }) {
 }
 
 export default ManagePanel;
+
+/** 系统日志查看器 */
+function LogViewer() {
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadLogs = () => {
+    setLoading(true);
+    fetch('/api/logs?lines=200')
+      .then(r => r.json())
+      .then(data => {
+        setLogs(data?.logs || []);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  };
+
+  useEffect(() => { loadLogs(); }, []);
+
+  return (
+    <Card style={{ borderRadius: 12, marginTop: 20, border: '1px solid #e2e8f0' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <Text strong style={{ fontSize: 15 }}>系统日志</Text>
+        <Button size="small" onClick={loadLogs} loading={loading}>刷新</Button>
+      </div>
+      {loading ? (
+        <Spin />
+      ) : logs.length === 0 ? (
+        <Empty description="暂无日志" />
+      ) : (
+        <div style={{
+          background: '#1e293b', color: '#e2e8f0', borderRadius: 8, padding: '12px 16px',
+          maxHeight: 500, overflow: 'auto', fontFamily: 'monospace', fontSize: 12, lineHeight: 1.8,
+          whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+        }}>
+          {logs.map((line, i) => (
+            <div key={i} style={{
+              color: line.includes('ERROR') ? '#f87171' :
+                     line.includes('SEARCH') ? '#60a5fa' :
+                     line.includes('FAQ_SAVE') ? '#4ade80' :
+                     line.includes('SERVER_START') ? '#fbbf24' : '#94a3b8',
+            }}>
+              {line}
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}

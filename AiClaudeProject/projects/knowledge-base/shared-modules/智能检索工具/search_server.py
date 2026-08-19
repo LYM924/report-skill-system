@@ -618,6 +618,18 @@ tickets: []
                     "path": doc["path"],
                 })
             self._json({"recent": recent})
+        elif parsed.path == "/api/logs":
+            """返回最近日志（用于页面查看）"""
+            params = parse_qs(parsed.query)
+            lines = int(params.get("lines", ["100"])[0])
+            log_file = LOG_DIR / "search_server.log"
+            if not log_file.exists():
+                self._json({"logs": [], "message": "暂无日志"})
+                return
+            with open(log_file, "r", encoding="utf-8") as f:
+                all_lines = f.readlines()
+            recent = all_lines[-lines:]
+            self._json({"logs": [l.strip() for l in recent], "total": len(all_lines)})
         elif parsed.path == "/api/reports":
             """返回报表数据列表"""
             eng = get_engine()
