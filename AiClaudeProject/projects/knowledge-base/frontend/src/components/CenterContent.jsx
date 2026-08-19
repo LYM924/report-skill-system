@@ -834,19 +834,19 @@ function DeptBrowser({ dept, isDark, onSelectDoc }) {
             })}
             columns={[
               {
-                title: '文档名称', dataIndex: 'name', key: 'name', width: '35%',
+                title: '文档名称', dataIndex: 'name', key: 'name', width: '30%',
                 render: text => <Text strong style={{ fontSize: 14, color: isDark ? '#e5e5e5' : '#303133' }}>{text}</Text>,
               },
               {
-                title: '所属部门', dataIndex: 'dept', key: 'dept', width: 100,
-                render: text => <span style={{ color: isDark ? '#bbb' : '#606266' }}>{text || '-'}</span>,
+                title: '所属部门', dataIndex: 'dept', key: 'dept', width: 130,
+                render: text => <span style={{ color: isDark ? '#bbb' : '#606266', whiteSpace: 'nowrap' }}>{text || '-'}</span>,
               },
               {
-                title: '更新时间', dataIndex: 'updated', key: 'updated', width: 100,
-                render: text => <span style={{ color: isDark ? '#bbb' : '#606266' }}>{text || '-'}</span>,
+                title: '更新时间', dataIndex: 'updated', key: 'updated', width: 110,
+                render: text => <span style={{ color: isDark ? '#bbb' : '#606266', whiteSpace: 'nowrap' }}>{text || '-'}</span>,
               },
               {
-                title: '关键词', dataIndex: 'keywords', key: 'keywords',
+                title: '关键词', dataIndex: 'keywords', key: 'keywords', width: 180,
                 render: arr => (arr || []).slice(0, 4).map(k => (
                   <Tag key={k} style={{ fontSize: 10, borderRadius: 4, margin: '1px 3px', background: 'rgba(13,148,136,0.06)', color: '#0D9488', border: 'none' }}>{k}</Tag>
                 )),
