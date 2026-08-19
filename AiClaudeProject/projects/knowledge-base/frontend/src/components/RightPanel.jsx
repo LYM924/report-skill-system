@@ -571,7 +571,10 @@ function RightPanel({ selectedDoc, onClearDoc }) {
         <Text strong style={{ fontSize: 14, display: 'block', marginBottom: 12 }}>相关产品文档</Text>
         <Row gutter={[8, 8]}>
           <Col span={12}>
-            <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 8, height: 90 }}></div>
+            <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 8, height: 90 }}>
+              <div style={{ fontSize: 11, color: '#999', marginBottom: 4 }}>文档趋势</div>
+              <MiniChart data={trendData.length > 0 ? trendData : [{month:'3月',value:0},{month:'8月',value:0}]} color="#0D9488" />
+            </div>
           </Col>
           <Col span={12}>
             <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 8, height: 90 }}>
@@ -606,7 +609,10 @@ function RightPanel({ selectedDoc, onClearDoc }) {
             </div>
           </Col>
           <Col span={12}>
-            <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 8, height: 160 }}></div>
+            <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 8, height: 90 }}>
+              <div style={{ fontSize: 11, color: '#999', marginBottom: 4 }}>FAQ趋势</div>
+              <MiniChart data={faqTrendData.length > 0 ? faqTrendData : [{month:'3月',value:0},{month:'8月',value:0}]} color="#2DD4BF" />
+            </div>
           </Col>
         </Row>
       </div>

@@ -507,7 +507,13 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
                 <div style={{ textAlign: 'center' }}>
                   <Text type="secondary" style={{ fontSize: 13 }}>未找到相关结果</Text>
                   <br />
-                  <Text type="secondary" style={{ fontSize: 12 }}>试试其他关键词，如"报销单"、"选不到"</Text>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    试试其他关键词，如"报销单"、"选不到"、"预算指标"
+                  </Text>
+                  <br />
+                  <Text type="secondary" style={{ fontSize: 11, color: '#bbb', marginTop: 4 }}>
+                    提示：可使用左侧菜单按部门或产品模块浏览
+                  </Text>
                 </div>
               }
               style={{ padding: '24px 0' }}

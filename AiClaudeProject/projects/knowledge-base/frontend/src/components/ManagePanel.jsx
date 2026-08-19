@@ -5,7 +5,7 @@
  * 关键词管理等功能入口。草稿数据存储在 localStorage 中。
  */
 import React, { useState, useEffect } from 'react';
-import { Typography, Card, Row, Col, Table, Tag, Button, Empty, Modal, Select, Input, Spin } from 'antd';
+import { Typography, Card, Row, Col, Table, Tag, Button, Empty, Modal, Select, Input, Spin, message } from 'antd';
 import { CloudUploadOutlined, QuestionCircleOutlined, ReloadOutlined, SearchOutlined, BugOutlined, FileTextOutlined } from '@ant-design/icons';
 import { saveFAQ, deleteFAQ } from '../api';
 
@@ -211,8 +211,28 @@ function ManagePanel({ isDark }) {
       {/* 系统日志 */}
       {activeSection === 'logs' && <LogViewer />}
 
+      {/* 关键词管理 */}
+      {activeSection === 'keywords' && <KeywordManager />}
+
+      {/* 重建索引 */}
+      {activeSection === 'rebuild' && (
+        <Card style={{ borderRadius: 12, marginTop: 20, border: '1px solid #e2e8f0' }}>
+          <Text strong style={{ fontSize: 15, display: 'block', marginBottom: 12 }}>重建索引</Text>
+          <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 16 }}>
+            重新构建搜索引擎索引，包括 BM25、FAISS 向量和关键词索引。通常在增删文档后执行。
+          </Text>
+          <Button type="primary" icon={<ReloadOutlined />}
+            onClick={async () => {
+              await fetch('/api/rebuild');
+              message.success('索引重建完成');
+            }}>
+            开始重建
+          </Button>
+        </Card>
+      )}
+
       {/* 其他 section 占位 */}
-      {activeSection !== 'drafts' && (
+      {activeSection !== 'drafts' && activeSection !== 'logs' && activeSection !== 'keywords' && activeSection !== 'rebuild' && (
         <Card style={{ borderRadius: 12, marginTop: 20, border: '1px solid #e2e8f0' }}>
           <Empty description={`${sections.find(s => s.key === activeSection)?.title}功能开发中...`} />
         </Card>
@@ -312,6 +332,68 @@ function ManagePanel({ isDark }) {
         } />
       </Modal>
     </div>
+  );
+}
+
+/** 关键词管理组件 */
+function KeywordManager() {
+  const [keywords, setKeywords] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [addKw, setAddKw] = useState('');
+  const [addModule, setAddModule] = useState('');
+  const [addDept, setAddDept] = useState('');
+
+  const loadKeywords = () => {
+    setLoading(true);
+    fetch(`/api/keywords?q=${encodeURIComponent(search)}&page_size=100`)
+      .then(r => r.json())
+      .then(data => { setKeywords(data?.keywords || []); setLoading(false); })
+      .catch(() => setLoading(false));
+  };
+
+  useEffect(() => { loadKeywords(); }, []);
+
+  const handleAdd = async () => {
+    if (!addKw.trim() || !addModule.trim()) return;
+    await fetch(`/api/keywords/add?keyword=${encodeURIComponent(addKw.trim())}&module=${encodeURIComponent(addModule.trim())}&dept=${encodeURIComponent(addDept.trim())}`);
+    setAddKw(''); setAddModule(''); setAddDept('');
+    loadKeywords();
+  };
+
+  const handleDelete = async (kw) => {
+    await fetch(`/api/keywords/delete?keyword=${encodeURIComponent(kw)}`);
+    loadKeywords();
+  };
+
+  return (
+    <Card style={{ borderRadius: 12, marginTop: 20, border: '1px solid #e2e8f0' }}>
+      <Text strong style={{ fontSize: 15, display: 'block', marginBottom: 12 }}>关键词管理</Text>
+      {/* Add form */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <Input placeholder="关键词" value={addKw} onChange={e => setAddKw(e.target.value)} style={{ width: 150 }} />
+        <Input placeholder="模块" value={addModule} onChange={e => setAddModule(e.target.value)} style={{ width: 150 }} />
+        <Input placeholder="部门" value={addDept} onChange={e => setAddDept(e.target.value)} style={{ width: 120 }} />
+        <Button type="primary" size="small" onClick={handleAdd}>添加</Button>
+      </div>
+      {/* Search */}
+      <Input.Search placeholder="搜索关键词..." value={search} onChange={e => setSearch(e.target.value)} onSearch={loadKeywords} style={{ marginBottom: 12 }} />
+      {/* List */}
+      <Table
+        dataSource={keywords}
+        rowKey="keyword"
+        size="small"
+        loading={loading}
+        pagination={{ pageSize: 20, size: 'small' }}
+        columns={[
+          { title: '关键词', dataIndex: 'keyword', key: 'keyword', render: t => <Text code style={{ fontSize: 12 }}>{t}</Text> },
+          { title: '模块', dataIndex: 'modules', key: 'modules', render: arr => (arr||[]).slice(0,3).map(m => <Tag key={m} style={{fontSize:10,margin:'1px 2px'}}>{m}</Tag>) },
+          { title: '部门', dataIndex: 'depts', key: 'depts', render: arr => (arr||[]).slice(0,2).map(d => <Tag key={d} style={{fontSize:10,margin:'1px 2px'}}>{d}</Tag>) },
+          { title: '引用', dataIndex: 'count', key: 'count', width: 60 },
+          { title: '操作', key: 'act', width: 60, render: (_,r) => <Button type="link" size="small" danger style={{fontSize:12,padding:0}} onClick={() => handleDelete(r.keyword)}>删除</Button> },
+        ]}
+      />
+    </Card>
   );
 }
 
