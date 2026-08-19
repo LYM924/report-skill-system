@@ -59,7 +59,7 @@ function buildBizChildren(menuData) {
   });
 }
 
-/** 构建部门知识子菜单（只到二级部门，点击后在中间面板展示文档） */
+/** 构建部门知识子菜单（有三级则展示三级，无三级展示到二级） */
 function buildDeptChildren(menuData) {
   if (!menuData?.deptKnowledge) return [];
   return Object.entries(menuData.deptKnowledge).map(([d1, d2s]) => {
@@ -71,7 +71,23 @@ function buildDeptChildren(menuData) {
       label: `${d1} (${totalD1})`,
       icon: <TeamOutlined />,
       children: Object.entries(d2s).map(([d2, d3s]) => {
+        const d3Keys = Object.keys(d3s).filter(k => k && k !== '未分类' && k !== d2);
         const totalD2 = Object.values(d3s).reduce((s, mods) => s + mods.length, 0);
+        // 有真正的三级部门 → 展开到三级，点击三级浏览
+        if (d3Keys.length > 0) {
+          return {
+            key: `dept-${d1}-${d2}`,
+            label: `${d2} (${totalD2})`,
+            children: d3Keys.map((d3) => {
+              const count = d3s[d3]?.length || 0;
+              return {
+                key: `dept-browse-${d2}-${d3}`,
+                label: `${d3} (${count})`,
+              };
+            }),
+          };
+        }
+        // 无三级部门 → 直接点击二级浏览
         return {
           key: `dept-browse-${d2}`,
           label: `${d2} (${totalD2})`,

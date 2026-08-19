@@ -252,10 +252,12 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
     return <ReportBrowser isDark={isDark} onSelectDoc={onSelectDoc} />;
   }
 
-  // 部门知识浏览（左侧部门知识点击二级部门触发）
+  // 部门知识浏览（左侧部门知识点击二级/三级部门触发）
   if (selectedNav && selectedNav.startsWith('dept-browse-')) {
-    const dept = selectedNav.replace('dept-browse-', '');
-    return <DeptBrowser dept={dept} isDark={isDark} onSelectDoc={onSelectDoc} />;
+    const deptKey = selectedNav.replace('dept-browse-', '');
+    // dept-browse-{d2} or dept-browse-{d2}-{d3}
+    const dept = deptKey.replace(/-/g, '/');
+    return <DeptBrowser dept={deptKey} isDark={isDark} onSelectDoc={onSelectDoc} />;
   }
 
   return (
