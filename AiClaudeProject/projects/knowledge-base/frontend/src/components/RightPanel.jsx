@@ -383,7 +383,10 @@ function RightPanel({ selectedDoc, onClearDoc }) {
           {!editingFaq ? (
             <Button type="text" size="small" onClick={handleEditFaq} style={{ fontSize: 12, color: '#0D9488' }}>编辑</Button>
           ) : (
-            <Button type="primary" size="small" onClick={handleSaveFaq} style={{ fontSize: 12 }}>保存</Button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Button size="small" onClick={() => setEditingFaq(false)} style={{ fontSize: 12 }}>取消</Button>
+              <Button type="primary" size="small" onClick={handleSaveFaq} style={{ fontSize: 12 }}>保存</Button>
+            </div>
           )}
         </div>
 
@@ -420,6 +423,32 @@ function RightPanel({ selectedDoc, onClearDoc }) {
 
   // ===== 文档详情视图 =====
   if (selectedDoc) {
+    // FAQ 文档也走 FAQ 详情视图（支持编辑）
+    const isFaqDoc = selectedDoc.path?.includes('FAQ知识库');
+    if (isFaqDoc && !selectedFaq) {
+      // 自动切换到 FAQ 详情模式
+      const faqId = selectedDoc.id || selectedDoc.faq_id || '';
+      const faqInfo = {
+        id: faqId,
+        title: selectedDoc.title || '',
+        path: selectedDoc.path || '',
+        keywords: selectedDoc.keywords || [],
+        dept: selectedDoc.dept || '',
+        sub_module: selectedDoc.sub_module || '',
+        module: selectedDoc.module || '',
+        content: selectedDoc.content || selectedDoc.snippets?.join('\n') || '',
+      };
+      // 异步加载完整FAQ内容
+      fetch(`/api/faq?id=${faqId}`).then(r => r.json()).then(data => {
+        if (data && !data.error) {
+          setSelectedFaq({ ...faqInfo, ...data, content: data.content || faqInfo.content });
+        } else {
+          setSelectedFaq(faqInfo);
+        }
+      }).catch(() => setSelectedFaq(faqInfo));
+      return null; // 加载中，下一次渲染走 FAQ 视图
+    }
+
     return (
       <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: 16 }}>
         <Button
