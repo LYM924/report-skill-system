@@ -31,7 +31,7 @@ import StatsDashboard from './StatsDashboard';
 import ChatMode from './ChatMode';
 import ManagePanel from './ManagePanel';
 
-const { Text } = Typography;
+const { Text, Paragraph } = Typography;
 
 const quickActions = [
   { key: 'ai_summary', label: '大模型总结', icon: <RobotOutlined />, color: '#fff', bg: '#1e293b' },
@@ -213,6 +213,11 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
   if (selectedNav && selectedNav.startsWith('faq-dept-')) {
     const dept = selectedNav.replace('faq-dept-', '');
     return <FaqBrowser dept={dept} isDark={isDark} onSelectDoc={onSelectDoc} />;
+  }
+
+  // 报表数据浏览（左侧菜单 报表数据 触发）
+  if (selectedNav === 'reports') {
+    return <ReportBrowser isDark={isDark} onSelectDoc={onSelectDoc} />;
   }
 
   return (
@@ -608,6 +613,73 @@ function FaqBrowser({ dept, isDark, onSelectDoc }) {
                       {faq.id || faq.faq_id}
                     </Tag>
                   </div>
+                </div>
+                <RightOutlined style={{ color: '#ccc', fontSize: 12 }} />
+              </div>
+            </div>
+          ))}
+        </Card>
+      )}
+    </div>
+  );
+}
+
+/** 报表数据浏览组件 */
+function ReportBrowser({ isDark, onSelectDoc }) {
+  const [reports, setReports] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/reports')
+      .then(r => r.json())
+      .then(data => {
+        setReports(data?.reports || []);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
+
+  return (
+    <div style={{ width: '100%' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+        <BarChartOutlined style={{ fontSize: 20, color: '#D97706' }} />
+        <Text strong style={{ fontSize: 18, color: isDark ? '#e5e5e5' : '#1e293b' }}>
+          报表数据 ({reports.length})
+        </Text>
+      </div>
+      {loading ? (
+        <Spin />
+      ) : reports.length === 0 ? (
+        <Empty description="暂无报表数据" />
+      ) : (
+        <Card style={{ borderRadius: 12, border: `1px solid ${isDark ? '#303030' : '#e2e8f0'}` }}>
+          {reports.map((r, i) => (
+            <div
+              key={r.id || i}
+              onClick={() => onSelectDoc({ ...r, title: r.title, path: r.path })}
+              style={{
+                padding: '14px 16px',
+                borderBottom: i < reports.length - 1 ? `1px solid ${isDark ? '#303030' : '#f0f0f0'}` : 'none',
+                cursor: 'pointer',
+                transition: 'background 0.15s',
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = isDark ? '#222' : '#fafafa'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <BarChartOutlined style={{ color: '#D97706', fontSize: 14, flexShrink: 0 }} />
+                <div style={{ flex: 1 }}>
+                  <Text strong style={{ fontSize: 14, color: isDark ? '#e5e5e5' : '#1e293b' }}>
+                    {r.title}
+                  </Text>
+                  {r.snippets && r.snippets.length > 0 && (
+                    <Paragraph
+                      ellipsis={{ rows: 1 }}
+                      style={{ fontSize: 12, color: '#999', margin: '4px 0 0' }}
+                    >
+                      {r.snippets.join(' ... ')}
+                    </Paragraph>
+                  )}
                 </div>
                 <RightOutlined style={{ color: '#ccc', fontSize: 12 }} />
               </div>

@@ -13,7 +13,7 @@ import { Menu, Button, Spin } from 'antd';
 import {
   FolderOpenOutlined, AppstoreOutlined, ApartmentOutlined,
   FileTextOutlined, TeamOutlined, QuestionCircleOutlined,
-  MenuFoldOutlined, MenuUnfoldOutlined,
+  MenuFoldOutlined, MenuUnfoldOutlined, BarChartOutlined,
 } from '@ant-design/icons';
 
 /** 构建产品模块子菜单 */
@@ -139,6 +139,7 @@ function LeftSidebar({ selectedNav, onNavChange, collapsed, onToggleCollapse }) 
     if (!menuData) return [];
     return [
       { key: 'all', label: '全部知识', icon: <FolderOpenOutlined /> },
+      { key: 'reports', label: '报表数据', icon: <BarChartOutlined /> },
       {
         key: 'faq',
         label: `FAQ库 (${faqs.length})`,
