@@ -7,7 +7,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Typography, Empty, Tag, Avatar, Row, Col, Button, Spin, Divider, Image } from 'antd';
+import { Typography, Empty, Tag, Avatar, Row, Col, Button, Spin, Divider, Image, Input } from 'antd';
 import {
   QuestionCircleOutlined, FileTextOutlined, ClockCircleOutlined,
   RightOutlined, ArrowLeftOutlined,
@@ -291,6 +291,10 @@ function RightPanel({ selectedDoc, onClearDoc }) {
   const [trendData, setTrendData] = useState([]);
   const [faqTrendData, setFaqTrendData] = useState([]);
   const [recentData, setRecentData] = useState([]);
+  const [editingFaq, setEditingFaq] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [editKeywords, setEditKeywords] = useState('');
+  const [editContent, setEditContent] = useState('');
 
   useEffect(() => {
     getFAQs().then(data => {
@@ -342,21 +346,55 @@ function RightPanel({ selectedDoc, onClearDoc }) {
     setFaqLoading(false);
   };
 
+  const handleEditFaq = () => {
+    setEditingFaq(true);
+    setEditTitle(selectedFaq.title || '');
+    setEditKeywords((selectedFaq.keywords || []).join(', '));
+    setEditContent(selectedFaq.content || selectedFaq.answer || '');
+  };
+
+  const handleSaveFaq = async () => {
+    const params = new URLSearchParams({
+      title: editTitle,
+      keywords: editKeywords,
+      dept: selectedFaq.dept || '数智财务组',
+      sub_module: selectedFaq.sub_module || '',
+      module: selectedFaq.module || '',
+      content: editContent,
+      status: 'active',
+    });
+    await fetch(`/api/faq/save?${params.toString()}`);
+    setEditingFaq(false);
+    setSelectedFaq(prev => ({
+      ...prev,
+      title: editTitle,
+      keywords: editKeywords.split(',').map(k => k.trim()).filter(Boolean),
+      content: editContent,
+    }));
+  };
+
   // ===== FAQ 详情视图 =====
   if (selectedFaq && !selectedDoc) {
     return (
       <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: 16 }}>
-        <Button
-          type="text"
-          icon={<ArrowLeftOutlined />}
-          onClick={() => setSelectedFaq(null)}
-          style={{ alignSelf: 'flex-start', marginBottom: 12, padding: '4px 8px', fontSize: 13, color: '#0D9488' }}
-        >
-          返回
-        </Button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+          <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => { setSelectedFaq(null); setEditingFaq(false); }}
+            style={{ padding: '4px 8px', fontSize: 13, color: '#0D9488' }}>返回</Button>
+          {!editingFaq ? (
+            <Button type="text" size="small" onClick={handleEditFaq} style={{ fontSize: 12, color: '#0D9488' }}>编辑</Button>
+          ) : (
+            <Button type="primary" size="small" onClick={handleSaveFaq} style={{ fontSize: 12 }}>保存</Button>
+          )}
+        </div>
 
         {faqLoading ? (
           <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
+        ) : editingFaq ? (
+          <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <Input value={editTitle} onChange={e => setEditTitle(e.target.value)} placeholder="FAQ 标题" />
+            <Input value={editKeywords} onChange={e => setEditKeywords(e.target.value)} placeholder="关键词（逗号分隔）" />
+            <Input.TextArea value={editContent} onChange={e => setEditContent(e.target.value)} rows={12} placeholder="FAQ 内容" />
+          </div>
         ) : (
           <div style={{ flex: 1, overflow: 'auto' }}>
             <Text strong style={{ fontSize: 16, display: 'block', marginBottom: 8, color: '#0D9488' }}>

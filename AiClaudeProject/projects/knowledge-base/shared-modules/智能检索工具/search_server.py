@@ -19,6 +19,28 @@ PROJECT_DIR = HERE.parents[3]  # AiClaudeProject/
 sys.path.insert(0, str(HERE))
 from search_engine import SearchEngine
 
+from logging.handlers import RotatingFileHandler
+
+LOG_DIR = HERE / "logs"
+LOG_DIR.mkdir(exist_ok=True)
+
+# 配置日志
+log_handler = RotatingFileHandler(
+    LOG_DIR / "search_server.log",
+    maxBytes=5 * 1024 * 1024,  # 5MB per file
+    backupCount=5,              # keep 5 backups
+    encoding="utf-8",
+)
+log_handler.setFormatter(logging.Formatter(
+    "%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+))
+
+server_logger = logging.getLogger("search_server")
+server_logger.setLevel(logging.INFO)
+server_logger.addHandler(log_handler)
+server_logger.propagate = False  # don't send to root logger
+
 engine = None
 SESSION_STORE = {}  # session_id -> context dict, avoids URL length limit
 SEARCH_COUNTER = {  # 搜索统计计数器
@@ -88,6 +110,8 @@ class SearchHandler(SimpleHTTPRequestHandler):
             params = parse_qs(parsed.query)
             query = params.get("q", [""])[0].strip()
             top = int(params.get("top", ["15"])[0])
+            page = int(params.get("page", ["1"])[0])
+            page_size = min(int(params.get("page_size", ["10"])[0]), 50)
 
             if not query:
                 self._json({"error": "请提供查询参数 q"})
@@ -97,6 +121,7 @@ class SearchHandler(SimpleHTTPRequestHandler):
             SEARCH_COUNTER["total"] = SEARCH_COUNTER.get("total", 0) + 1
             SEARCH_COUNTER["today"] = SEARCH_COUNTER.get("today", 0) + 1
             SEARCH_COUNTER["week"] = SEARCH_COUNTER.get("week", 0) + 1
+            server_logger.info(f"SEARCH query='{query}' tokens={list(jieba.cut(query))}")
 
             # Track hotwords
             if "hotwords" not in SEARCH_COUNTER:
@@ -141,6 +166,25 @@ class SearchHandler(SimpleHTTPRequestHandler):
 
             # 1. 常规搜索
             result = eng.search(query, top=top)
+
+            # 分页处理
+            all_results = result.get("results", [])
+            total = len(all_results)
+            start = (page - 1) * page_size
+            paged_results = all_results[start:start + page_size]
+
+            result["results"] = paged_results
+            result["total"] = total
+            result["page"] = page
+            result["page_size"] = page_size
+            result["has_more"] = start + page_size < total
+
+            # 记录搜索查询到日志文件
+            try:
+                with open(LOG_DIR / "search_queries.log", "a", encoding="utf-8") as f:
+                    f.write(f"{datetime.datetime.now().isoformat()}\t{query}\t{total}\n")
+            except Exception:
+                pass
 
             # 1b. Add quick summary for immediate display
             ans = result.get('answer', {})
@@ -381,6 +425,7 @@ tickets: []
 
             # 重建引擎全部索引（避免重复追加）
             rebuild_engine()
+            server_logger.info(f"FAQ_SAVE id={faq_id} title='{title}' dept={dept}")
 
             self._json({"ok": True, "faq_id": faq_id, "path": str(file_path.relative_to(PROJECT_DIR))})
         elif parsed.path == "/api/faq/suggest":
@@ -425,6 +470,7 @@ tickets: []
             if full_path.exists():
                 full_path.unlink()
                 rebuild_engine()
+                server_logger.info(f"FAQ_DELETE path={faq_path}")
                 self._json({"ok": True, "message": "已删除"})
             else:
                 self._json({"error": "FAQ 文件不存在"})
@@ -477,6 +523,27 @@ tickets: []
             hot = SEARCH_COUNTER.get("hotwords", {})
             sorted_hot = sorted(hot.items(), key=lambda x: x[1], reverse=True)[:10]
             self._json({"hotwords": [{"word": w, "count": c} for w, c in sorted_hot]})
+        elif parsed.path == "/api/suggest":
+            """搜索建议/自动补全"""
+            params = parse_qs(parsed.query)
+            q = params.get("q", [""])[0].strip()
+            if not q:
+                self._json({"suggestions": []})
+                return
+            eng = get_engine()
+            suggestions = []
+            # 从关键词索引匹配
+            for kw in eng.keyword_map:
+                if q in kw and len(suggestions) < 8:
+                    if kw not in suggestions:
+                        suggestions.append(kw)
+            # 从 FAQ 标题匹配
+            for faq in eng.faq_docs:
+                if q in faq.get("title", "") and len(suggestions) < 10:
+                    s = faq["title"]
+                    if s not in suggestions:
+                        suggestions.append(s)
+            self._json({"suggestions": suggestions[:10]})
         elif parsed.path == "/api/menu":
             """返回左侧菜单树数据（从 product_module.xlsx 生成）"""
             import pandas as pd
@@ -674,8 +741,10 @@ tickets: []
             })
 
         except anthropic.APIError as e:
+            server_logger.error(f"CLAUDE_API_ERROR: {str(e)}")
             self._sse_send({"error": f"API 错误: {str(e)}"})
         except Exception as e:
+            server_logger.error(f"CLAUDE_ERROR: {str(e)}")
             self._sse_send({"error": f"调用失败: {str(e)}"})
 
         self._sse_done()
@@ -770,12 +839,14 @@ tickets: []
             self.send_error(500)
 
     def log_message(self, format, *args):
-        pass  # 静默日志
+        """记录 HTTP 请求日志"""
+        server_logger.info(f"{self.client_address[0]} - {format % args}")
 
 
 def main():
     load_counter()
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
+    server_logger.info(f"SERVER_START port={port}")
     server = ThreadingHTTPServer(("0.0.0.0", port), SearchHandler)
     print(f"\n  产品知识库搜索服务已启动")
     print(f"  打开浏览器访问: http://localhost:{port}\n")

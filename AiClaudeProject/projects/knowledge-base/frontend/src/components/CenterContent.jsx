@@ -48,6 +48,9 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
 
   const [quickActionMsg, setQuickActionMsg] = useState(null);
   const [aiSummaryText, setAiSummaryText] = useState(''); // 当前 AI 总结文本
+  const [searchPage, setSearchPage] = useState(1);
+  const [suggestions, setSuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   const handleQuickAction = (key) => {
     if (key === 'ai_summary') {
@@ -172,7 +175,8 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
     setSearchError(null);
     const startTime = performance.now();
     try {
-      const results = await searchKnowledge(q, searchScope);
+      setSearchPage(1);
+      const results = await searchKnowledge(q, searchScope, 1);
       onSearchResultsChange(results);
       saveToHistory(q);
       setSearchTime(Math.round(performance.now() - startTime));
@@ -181,6 +185,34 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
       setSearchError(err.message || '搜索失败');
     } finally {
       setSearching(false);
+    }
+  };
+
+  const handleLoadMore = async () => {
+    const nextPage = searchPage + 1;
+    const results = await searchKnowledge(searchQuery.trim(), searchScope, nextPage);
+    if (results?.results?.length) {
+      onSearchResultsChange({
+        ...results,
+        results: [...(searchResults?.results || []), ...results.results],
+      });
+      setSearchPage(nextPage);
+    }
+  };
+
+  const handleInputChange = (e) => {
+    const val = e.target.value;
+    setSearchQuery(val);
+    if (val.trim().length >= 2) {
+      fetch(`/api/suggest?q=${encodeURIComponent(val.trim())}`)
+        .then(r => r.json())
+        .then(data => {
+          setSuggestions(data?.suggestions || []);
+          setShowSuggestions(true);
+        });
+    } else {
+      setSuggestions([]);
+      setShowSuggestions(false);
     }
   };
 
@@ -242,7 +274,7 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
               placeholder="输入关键词搜索知识库... (Ctrl+K)"
               size="large"
               value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
+              onChange={handleInputChange}
               onPressEnter={() => handleSearch()}
               onFocus={() => setShowHistory(searchHistory.length > 0)}
               onBlur={() => setTimeout(() => setShowHistory(false), 200)}

@@ -29,8 +29,8 @@ async function apiFetch(path, params = {}) {
  * @param {string} scope - 搜索范围: all | doc | faq | ticket | dept
  * @returns {Promise<{results, answer, faqs, tickets, claude_stream_url}>}
  */
-export async function searchKnowledge(query, scope = 'all') {
-  const data = await apiFetch('/search', { q: query, top: 10 });
+export async function searchKnowledge(query, scope = 'all', page = 1) {
+  const data = await apiFetch('/search', { q: query, top: 10, page, page_size: 10 });
   if (!data) return { results: [], answer: null, faqs: [], tickets: [] };
 
   return {
@@ -40,7 +40,8 @@ export async function searchKnowledge(query, scope = 'all') {
     expanded_terms: data.expanded_terms || [],
     total: data.total || 0,
     process: data.process || null,
-    claude_stream_url: data.claude_stream_url || null,  // 新增
+    claude_stream_url: data.claude_stream_url || null,
+    has_more: data.has_more || false,
   };
 }
 
