@@ -164,14 +164,14 @@ function SimpleMarkdown({ content }) {
               <thead>
                 <tr>
                   {header.map((h, j) => (
-                    <th key={j} style={{ border: '1px solid #e2e8f0', padding: '6px 10px', background: '#f8fafc', textAlign: 'left', fontWeight: 600, color: '#334155', whiteSpace: 'nowrap' }}>{renderInline(h)}</th>
+                    <th key={j} style={{ border: '1px solid #e2e8f0', padding: '6px 10px', background: isDark ? '#252525' : '#f8fafc', textAlign: 'left', fontWeight: 600, color: isDark ? '#bbb' : '#334155', whiteSpace: 'nowrap' }}>{renderInline(h)}</th>
                   ))}
                 </tr>
               </thead>
             )}
             <tbody>
               {mergedBody.map((row, ri) => (
-                <tr key={ri} style={{ background: ri % 2 === 0 ? '#fff' : '#fafafa' }}>
+                <tr key={ri} style={{ background: ri % 2 === 0 ? (isDark ? '#1a1a1a' : '#fff') : (isDark ? '#222' : '#fafafa') }}>
                   {row.map((cell, cj) => (
                     <td key={cj} style={{ border: '1px solid #e2e8f0', padding: '6px 10px', color: '#4B5563', whiteSpace: cj === 0 ? 'nowrap' : 'normal' }}>{renderInline(cell)}</td>
                   ))}
@@ -267,7 +267,7 @@ function SimpleMarkdown({ content }) {
           )}
           <tbody>
             {mergedBody.map((row, ri) => (
-              <tr key={ri} style={{ background: ri % 2 === 0 ? '#fff' : '#fafafa' }}>
+              <tr key={ri} style={{ background: ri % 2 === 0 ? (isDark ? '#1a1a1a' : '#fff') : (isDark ? '#222' : '#fafafa') }}>
                 {row.map((cell, cj) => (
                   <td key={cj} style={{ border: '1px solid #e2e8f0', padding: '6px 10px' }}>{renderInline(cell)}</td>
                 ))}
@@ -400,7 +400,7 @@ function RightPanel({ selectedDoc, onClearDoc, isDark }) {
           </div>
         ) : (
           <div style={{ flex: 1, overflow: 'auto' }}>
-            <Text strong style={{ fontSize: 16, display: 'block', marginBottom: 8, color: '#0D9488' }}>
+            <Text strong style={{ fontSize: 16, display: 'block', marginBottom: 8, color: isDark ? '#e5e5e5' : '#0D9488' }}>
               {selectedFaq.title || 'FAQ 详情'}
             </Text>
             <div style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
