@@ -17,7 +17,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Typography, Card, Tag, Input, Button, Select, Row, Col, Spin, Empty, Table, Tooltip } from 'antd';
+import { Typography, Card, Tag, Input, Button, Select, Row, Col, Spin, Empty, Table, Tooltip, Skeleton } from 'antd';
 import {
   SearchOutlined, RobotOutlined, LinkOutlined, FileSearchOutlined, CloudUploadOutlined,
   BulbOutlined, LoadingOutlined, HistoryOutlined, CloseOutlined,
@@ -541,7 +541,7 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
             <span style={{ cursor: 'pointer', fontSize: 16, opacity: 0.8 }}>▲</span>
           </div>
           {loading ? (
-            <Spin />
+            <Skeleton active paragraph={{ rows: 2 }} />
           ) : (
             <Row gutter={[16, 16]}>
               <Col span={6}>
@@ -605,7 +605,7 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
         <Card style={{ borderRadius: 12, border: isDark ? '1px solid #303030' : '1px solid #e2e8f0' }}>
           <Text strong style={{ fontSize: 16, display: 'block', marginBottom: 12 }}>文档</Text>
           {loading ? (
-            <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
+            <div style={{ textAlign: 'center', padding: 40 }}><Skeleton active paragraph={{ rows: 4 }} /></div>
           ) : documents.length === 0 ? (
             <Empty description="暂无文档" />
           ) : (
@@ -624,6 +624,20 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
                 onClick: () => onSelectDoc(record),
                 style: { cursor: 'pointer' },
               })}
+              components={{
+                header: {
+                  cell: (props) => (
+                    <th {...props} style={{
+                      ...props.style,
+                      background: isDark ? '#252525' : '#f5f7fa',
+                      color: isDark ? '#bbb' : '#606266',
+                      fontWeight: 500,
+                      fontSize: 14,
+                      whiteSpace: 'nowrap',
+                    }} />
+                  ),
+                },
+              }}
             />
           )}
         </Card>

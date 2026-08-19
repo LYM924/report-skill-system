@@ -27,6 +27,14 @@ function App() {
     try { return localStorage.getItem('kb_dark_mode') === '1'; } catch { return false; }
   });
 
+  // 响应式检测
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   // 顶部导航 Tab
   const [topTab, setTopTab] = useState('search');
 
@@ -190,7 +198,7 @@ function App() {
             width={240}
             collapsedWidth={60}
             collapsible
-            collapsed={sidebarCollapsed}
+            collapsed={sidebarCollapsed || isMobile}
             onCollapse={setSidebarCollapsed}
             trigger={null}
             style={{ background: isDarkSider, borderRight: `1px solid ${isDarkBorder}`, overflow: 'hidden' }}
@@ -218,25 +226,27 @@ function App() {
           </Content>
 
           {/* ===== 右侧信息看板 ===== */}
-          <div style={{ position: 'relative', flexShrink: 0, width: rightWidth }}>
-            <div
-              onMouseDown={handleResizeStart}
-              style={{
-                width: 6, cursor: 'col-resize',
-                background: 'transparent',
-                transition: 'background 0.15s',
-                position: 'absolute', left: -3, top: 0, bottom: 0, zIndex: 10,
-              }}
-              onMouseEnter={e => e.currentTarget.style.background = 'rgba(13,148,136,0.15)'}
-              onMouseLeave={e => { if (!resizing.current) e.currentTarget.style.background = 'transparent'; }}
-            />
-            <div style={{ width: '100%', height: '100%', background: isDark ? '#1a1a1a' : '#fff', borderLeft: `1px solid ${isDarkBorder}`, overflow: 'hidden' }}>
-              <RightPanel
-                selectedDoc={selectedDoc}
-                onClearDoc={() => setSelectedDoc(null)}
+          {!isMobile && (
+            <div style={{ position: 'relative', flexShrink: 0, width: rightWidth }}>
+              <div
+                onMouseDown={handleResizeStart}
+                style={{
+                  width: 6, cursor: 'col-resize',
+                  background: 'transparent',
+                  transition: 'background 0.15s',
+                  position: 'absolute', left: -3, top: 0, bottom: 0, zIndex: 10,
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(13,148,136,0.15)'}
+                onMouseLeave={e => { if (!resizing.current) e.currentTarget.style.background = 'transparent'; }}
               />
+              <div style={{ width: '100%', height: '100%', background: isDark ? '#1a1a1a' : '#fff', borderLeft: `1px solid ${isDarkBorder}`, overflow: 'hidden' }}>
+                <RightPanel
+                  selectedDoc={selectedDoc}
+                  onClearDoc={() => setSelectedDoc(null)}
+                />
+              </div>
             </div>
-          </div>
+          )}
         </Layout>
       </Layout>
       {/* 快捷键面板 */}

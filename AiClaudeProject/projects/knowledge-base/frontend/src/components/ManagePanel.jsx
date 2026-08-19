@@ -41,6 +41,10 @@ function ManagePanel({ isDark }) {
   const [editAnswer, setEditAnswer] = useState('');
 
   const [uploadModal, setUploadModal] = useState(false);
+  const [uploadContent, setUploadContent] = useState('');
+  const [uploadFilename, setUploadFilename] = useState('');
+  const [uploadDept, setUploadDept] = useState('数智财务组');
+  const [uploadModule, setUploadModule] = useState('浙里报');
 
   const handleDeleteDraft = async (id, path) => {
     if (path) {
@@ -315,21 +319,93 @@ function ManagePanel({ isDark }) {
 
       {/* 上传文档弹窗 */}
       <Modal
-        title="上传文档"
+        title="上传文档到知识库"
         open={uploadModal}
-        onCancel={() => setUploadModal(false)}
+        onCancel={() => {
+          setUploadModal(false);
+          setUploadContent('');
+          setUploadFilename('');
+        }}
         footer={null}
         width={500}
       >
-        <Empty description={
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
-            <Text type="secondary">文档上传功能需要后端支持。</Text>
-            <br />
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              当前请手动将 .md 文件放入 knowledge/ 对应部门目录下，然后调用 /api/rebuild 重建索引。
-            </Text>
+            <Text type="secondary" style={{ fontSize: 12 }}>选择 .md 文件</Text>
+            <input
+              type="file"
+              accept=".md,.txt"
+              onChange={async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const text = await file.text();
+                setUploadContent(text);
+                setUploadFilename(file.name.replace('.md', '').replace('.txt', ''));
+              }}
+              style={{ marginTop: 4, display: 'block' }}
+            />
           </div>
-        } />
+          <div style={{ display: 'flex', gap: 12 }}>
+            <div style={{ flex: 1 }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>所属部门</Text>
+              <Select
+                value={uploadDept}
+                onChange={setUploadDept}
+                options={DEPT_OPTIONS}
+                style={{ width: '100%', marginTop: 4 }}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>所属模块</Text>
+              <Input
+                value={uploadModule}
+                onChange={e => setUploadModule(e.target.value)}
+                style={{ marginTop: 4 }}
+                placeholder="如：浙里报"
+              />
+            </div>
+          </div>
+          {uploadContent && (
+            <div>
+              <Text type="secondary" style={{ fontSize: 12 }}>文件内容预览</Text>
+              <div style={{
+                maxHeight: 200, overflow: 'auto', background: '#f8fafc',
+                borderRadius: 6, padding: 12, marginTop: 4,
+                fontSize: 12, fontFamily: 'monospace', whiteSpace: 'pre-wrap',
+              }}>
+                {uploadContent.slice(0, 2000)}
+              </div>
+            </div>
+          )}
+          <Button
+            type="primary"
+            block
+            disabled={!uploadContent}
+            onClick={async () => {
+              const body = JSON.stringify({
+                filename: uploadFilename,
+                content: uploadContent,
+                dept: uploadDept,
+                module: uploadModule,
+              });
+              const resp = await fetch('/api/document/upload', {
+                method: 'POST',
+                body,
+              });
+              const result = await resp.json();
+              if (result.ok) {
+                message.success(`已上传: ${result.filename}`);
+                setUploadModal(false);
+                setUploadContent('');
+                setUploadFilename('');
+              } else {
+                message.error(result.error || '上传失败');
+              }
+            }}
+          >
+            上传到知识库
+          </Button>
+        </div>
       </Modal>
     </div>
   );
