@@ -241,14 +241,22 @@ class SearchEngine:
                 text = md_file.read_text(encoding="utf-8")
             except Exception:
                 continue
-            # 提取前 5000 字符作为内容样本（从 2000 提升，确保捕获更多业务内容）
             sample = text[:5000]
             rel_path = str(md_file.relative_to(PROJECT_DIR))
 
-            # 推断所属业务域
             parts = md_file.relative_to(KB_DIR).parts
             dept = parts[0] if len(parts) > 0 else ""
             domain = parts[1] if len(parts) > 1 else ""
+
+            # 预提取关键词（从 keyword_map 匹配，取前 5 个高频词）
+            keywords = []
+            if self.keyword_map:
+                from collections import Counter
+                kw_counter = Counter()
+                for kw in self.keyword_map:
+                    if len(kw) >= 2 and kw in sample:
+                        kw_counter[kw] += 1
+                keywords = [kw for kw, _ in kw_counter.most_common(5)]
 
             self.kb_docs.append({
                 "path": rel_path,
@@ -256,6 +264,7 @@ class SearchEngine:
                 "domain": domain,
                 "title": self._extract_title(text),
                 "content_sample": sample,
+                "keywords": keywords,
             })
 
     def _load_faq_knowledge(self):

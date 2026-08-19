@@ -351,16 +351,6 @@ class SearchHandler(SimpleHTTPRequestHandler):
                 if doc_path.exists():
                     mtime = doc_path.stat().st_mtime
                     updated = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
-                # 关键词：从文档路径和标题中提取，取前 5 个
-                keywords = []
-                content_sample = doc.get("content_sample", "")
-                if content_sample:
-                    from collections import Counter
-                    kw_counter = Counter()
-                    for kw in eng.keyword_map:
-                        if len(kw) >= 2 and kw in content_sample:
-                            kw_counter[kw] += 1
-                    keywords = [kw for kw, _ in kw_counter.most_common(5)]
                 docs.append({
                     "id": hash(doc["path"]) % 10000,
                     "name": name,
@@ -368,7 +358,7 @@ class SearchHandler(SimpleHTTPRequestHandler):
                     "product": product,
                     "dept": dept,
                     "updated": updated,
-                    "keywords": keywords,
+                    "keywords": doc.get("keywords", []),
                     "confidence": 85 + (hash(doc["path"]) % 10),
                 })
             self._json({"documents": docs, "total": total, "page": page, "page_size": page_size})
