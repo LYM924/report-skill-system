@@ -20,16 +20,16 @@ const { Text, Paragraph } = Typography;
 
 /** 迷你 SVG 折线图 */
 function MiniChart({ data, color = '#0D9488', height = 50 }) {
-  if (!data || data.length === 0) return null;
-  const maxVal = Math.max(...data.map(d => d.value));
-  const minVal = Math.min(...data.map(d => d.value));
+  if (!data || data.length < 2) return null;
+  const maxVal = Math.max(...data.map(d => d.value || 0));
+  const minVal = Math.min(...data.map(d => d.value || 0));
   const range = maxVal - minVal || 1;
   const w = 120;
   const h = height;
-  const stepX = w / (data.length - 1);
+  const stepX = w / Math.max(data.length - 1, 1);
   const points = data.map((d, i) => {
     const x = i * stepX;
-    const y = h - ((d.value - minVal) / range) * (h - 16);
+    const y = h - (((d.value || 0) - minVal) / range) * (h - 16);
     return `${x},${y}`;
   }).join(' ');
 
@@ -38,7 +38,7 @@ function MiniChart({ data, color = '#0D9488', height = 50 }) {
       <polyline points={points} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
       {data.map((d, i) => {
         const x = i * stepX;
-        const y = h - ((d.value - minVal) / range) * (h - 16);
+        const y = h - (((d.value || 0) - minVal) / range) * (h - 16);
         return <circle key={i} cx={x} cy={y} r="2.5" fill={color} stroke="#fff" strokeWidth="1.5" />;
       })}
     </svg>
