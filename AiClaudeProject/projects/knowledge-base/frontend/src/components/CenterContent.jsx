@@ -834,15 +834,15 @@ function DeptBrowser({ dept, isDark, onSelectDoc }) {
             })}
             columns={[
               {
-                title: '文档名称', dataIndex: 'name', key: 'name',
+                title: '文档名称', dataIndex: 'name', key: 'name', width: '35%',
                 render: text => <Text strong style={{ fontSize: 14, color: isDark ? '#e5e5e5' : '#303133' }}>{text}</Text>,
               },
               {
-                title: '所属部门', dataIndex: 'dept', key: 'dept', width: 120,
+                title: '所属部门', dataIndex: 'dept', key: 'dept', width: 100,
                 render: text => <span style={{ color: isDark ? '#bbb' : '#606266' }}>{text || '-'}</span>,
               },
               {
-                title: '更新时间', dataIndex: 'updated', key: 'updated', width: 110,
+                title: '更新时间', dataIndex: 'updated', key: 'updated', width: 100,
                 render: text => <span style={{ color: isDark ? '#bbb' : '#606266' }}>{text || '-'}</span>,
               },
               {
@@ -852,7 +852,7 @@ function DeptBrowser({ dept, isDark, onSelectDoc }) {
                 )),
               },
               {
-                title: '置信度', dataIndex: 'confidence', key: 'confidence', width: 75, align: 'center',
+                title: '置信度', dataIndex: 'confidence', key: 'confidence', width: 70, align: 'center',
                 render: val => <span style={{ color: '#0D9488', fontWeight: 500 }}>{val}%</span>,
               },
             ]}
