@@ -139,14 +139,6 @@ function LeftSidebar({ selectedNav, onNavChange, collapsed, onToggleCollapse }) 
     if (!menuData) return [];
     return [
       { key: 'all', label: '全部知识', icon: <FolderOpenOutlined /> },
-      { key: 'reports', label: '报表数据', icon: <BarChartOutlined /> },
-      {
-        key: 'faq',
-        label: `FAQ库 (${faqs.length})`,
-        icon: <QuestionCircleOutlined />,
-        children: buildFaqChildren(faqs),
-      },
-      { key: 'ticket', label: '工单知识', icon: <FileTextOutlined /> },
       {
         key: 'dept-knowledge',
         label: '部门知识',
@@ -164,6 +156,14 @@ function LeftSidebar({ selectedNav, onNavChange, collapsed, onToggleCollapse }) 
         label: '产品模块',
         icon: <AppstoreOutlined />,
         children: buildProductChildren(menuData),
+      },
+      { key: 'reports', label: '报表数据', icon: <BarChartOutlined /> },
+      { key: 'ticket', label: '工单知识', icon: <FileTextOutlined /> },
+      {
+        key: 'faq',
+        label: `FAQ库 (${faqs.length})`,
+        icon: <QuestionCircleOutlined />,
+        children: buildFaqChildren(faqs),
       },
     ];
   }, [menuData, faqs]);
