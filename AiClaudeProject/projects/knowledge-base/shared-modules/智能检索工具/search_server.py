@@ -771,6 +771,55 @@ tickets: []
             if not filename.endswith('.md'):
                 filename += '.md'
 
+            # 格式转换：补充 frontmatter 和双向链接（如果原始文档没有）
+            today = datetime.date.today().isoformat()
+            has_frontmatter = content.strip().startswith('---')
+
+            # 提取标题
+            title = filename.replace('.md', '')
+            for line in content.split('\n'):
+                if line.startswith('# ') and not line.startswith('## '):
+                    title = line[2:].strip()
+                    break
+
+            # 提取关键词
+            kw_list = []
+            for kw in eng.keyword_map:
+                if len(kw) >= 2 and kw in content[:2000]:
+                    kw_list.append(kw)
+                if len(kw_list) >= 5:
+                    break
+
+            if not has_frontmatter:
+                frontmatter = f"""---
+title: {title}
+dept: {dept}
+module: {module}
+domain: {module}
+type: 产品文档
+date: {today}
+keywords: {kw_list}
+---
+
+## 模块基础信息
+
+| 关联部门 | 二级部门 | 产品 | 产品线 |
+|---------|---------|------|--------|
+| 翡翠事业部 | {dept} | {module} | {module} |
+
+## 双向链接
+
+| 链接类型 | 目标 |
+|---------|------|
+| 关键词索引 | [关键词索引](../../../共享模块中心/关键词库/关键词索引.md) |
+| 模块文件 | [共享模块中心/{dept}/{module}/](../../../共享模块中心/{dept}/{module}/) |
+| 报表 | [报表数据](../../../2026报表数据知识库/) |
+
+---
+
+"""
+                content = frontmatter + content
+
             # 保存到 knowledge 目录
             target_dir = PROJECT_DIR / "projects/knowledge-base/knowledge" / dept / module
             target_dir.mkdir(parents=True, exist_ok=True)
