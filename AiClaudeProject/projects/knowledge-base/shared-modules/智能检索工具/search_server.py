@@ -735,8 +735,65 @@ tickets: []
             server_logger.info(f"KEYWORD_DELETE {keyword}")
             self._json({"ok": True})
 
+        elif parsed.path == "/api/document/upload":
+            """上传文档到知识库"""
+            # 读取 POST body
+            content_length = int(self.headers.get('Content-Length', 0))
+            if content_length == 0:
+                self._json({"error": "请上传文件内容"})
+                return
+
+            post_data = self.rfile.read(content_length).decode('utf-8')
+
+            # 解析 multipart 或 JSON body
+            import json as json_module
+            try:
+                data = json_module.loads(post_data)
+            except:
+                # 尝试解析 URL-encoded
+                params = parse_qs(post_data)
+                data = {
+                    "filename": params.get("filename", [""])[0],
+                    "content": params.get("content", [""])[0],
+                    "dept": params.get("dept", [""])[0],
+                    "module": params.get("module", [""])[0],
+                }
+
+            filename = data.get("filename", "").strip()
+            content = data.get("content", "").strip()
+            dept = data.get("dept", "数智财务组").strip()
+            module = data.get("module", "浙里报").strip()
+
+            if not filename or not content:
+                self._json({"error": "filename 和 content 为必填参数"})
+                return
+
+            if not filename.endswith('.md'):
+                filename += '.md'
+
+            # 保存到 knowledge 目录
+            target_dir = PROJECT_DIR / "projects/knowledge-base/knowledge" / dept / module
+            target_dir.mkdir(parents=True, exist_ok=True)
+
+            file_path = target_dir / filename
+            file_path.write_text(content, encoding='utf-8')
+
+            # 重建索引
+            rebuild_engine()
+            server_logger.info(f"DOC_UPLOAD {filename} -> {dept}/{module}")
+
+            self._json({"ok": True, "path": str(file_path.relative_to(PROJECT_DIR)), "filename": filename})
+
         else:
             super().do_GET()
+
+    def do_POST(self):
+        """处理 POST 请求"""
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/document/upload":
+            self.do_GET()  # Reuse the same handler
+        else:
+            self.send_error(404)
 
     def _sse_start(self):
         """发送 SSE 响应头"""
