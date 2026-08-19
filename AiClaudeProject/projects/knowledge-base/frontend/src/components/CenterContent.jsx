@@ -255,9 +255,9 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
   // 部门知识浏览（左侧部门知识点击二级/三级部门触发）
   if (selectedNav && selectedNav.startsWith('dept-browse-')) {
     const deptKey = selectedNav.replace('dept-browse-', '');
-    // dept-browse-{d2} or dept-browse-{d2}-{d3}
+    // dept-browse-{d2} or dept-browse-{d2}-{d3}，将 - 转为 / 匹配文档路径
     const dept = deptKey.replace(/-/g, '/');
-    return <DeptBrowser dept={deptKey} isDark={isDark} onSelectDoc={onSelectDoc} />;
+    return <DeptBrowser dept={dept} isDark={isDark} onSelectDoc={onSelectDoc} />;
   }
 
   return (
