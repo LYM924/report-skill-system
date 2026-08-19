@@ -214,6 +214,7 @@ class SearchHandler(SimpleHTTPRequestHandler):
             self._json(result)
         elif parsed.path == "/api/rebuild":
             rebuild_engine()
+            server_logger.info("INDEX_REBUILD manual trigger")
             self._json({"ok": True, "message": "索引已重建"})
         elif parsed.path == "/api/faq":
             params = parse_qs(parsed.query)
@@ -677,6 +678,63 @@ tickets: []
                     })
             scored.sort(key=lambda x: x["score"], reverse=True)
             self._json({"faqs": scored[:5]})
+        elif parsed.path == "/api/keywords":
+            """返回关键词列表（支持搜索）"""
+            eng = get_engine()
+            params = parse_qs(parsed.query)
+            q = params.get("q", [""])[0].strip()
+            page = int(params.get("page", ["1"])[0])
+            page_size = min(int(params.get("page_size", ["50"])[0]), 200)
+
+            keywords = []
+            for kw, entries in eng.keyword_map.items():
+                if not q or q in kw:
+                    keywords.append({
+                        "keyword": kw,
+                        "modules": list(set(e.get("module", "") for e in entries)),
+                        "depts": list(set(e.get("dept", "") for e in entries)),
+                        "count": len(entries),
+                    })
+            keywords.sort(key=lambda x: x["count"], reverse=True)
+            total = len(keywords)
+            start = (page - 1) * page_size
+            self._json({
+                "keywords": keywords[start:start + page_size],
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+            })
+
+        elif parsed.path == "/api/keywords/add":
+            """添加关键词映射"""
+            params = parse_qs(parsed.query)
+            keyword = params.get("keyword", [""])[0].strip()
+            module = params.get("module", [""])[0].strip()
+            dept = params.get("dept", [""])[0].strip()
+            if not keyword or not module:
+                self._json({"error": "keyword 和 module 为必填参数"})
+                return
+            eng = get_engine()
+            # Add to keyword_map
+            entry = {"module": module, "dept": dept, "domain": "", "kb_path": "", "note": "手动添加"}
+            eng.keyword_map[keyword].append(entry)
+            eng.save_cache()
+            server_logger.info(f"KEYWORD_ADD {keyword} -> {module} ({dept})")
+            self._json({"ok": True, "keyword": keyword, "module": module})
+
+        elif parsed.path == "/api/keywords/delete":
+            """删除关键词"""
+            eng = get_engine()
+            params = parse_qs(parsed.query)
+            keyword = params.get("keyword", [""])[0].strip()
+            if not keyword or keyword not in eng.keyword_map:
+                self._json({"error": "关键词不存在"})
+                return
+            del eng.keyword_map[keyword]
+            eng.save_cache()
+            server_logger.info(f"KEYWORD_DELETE {keyword}")
+            self._json({"ok": True})
+
         else:
             super().do_GET()
 
