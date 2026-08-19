@@ -16,6 +16,22 @@ const DEPT_OPTIONS = [
   { label: '免疫规划组', value: '免疫规划组' },
   { label: '电子档案组', value: '电子档案组' },
   { label: '数字化支撑组', value: '数字化支撑组' },
+  { label: '共享业务部', value: '共享业务部' },
+  { label: '质量测评部', value: '质量测评部' },
+  { label: '产品设计部', value: '产品设计部' },
+  { label: '业务研发部', value: '业务研发部' },
+  { label: '基础架构部', value: '基础架构部' },
+  { label: '基础保障部', value: '基础保障部' },
+  { label: '溯采产研部', value: '溯采产研部' },
+  { label: '政采研发', value: '政采研发' },
+  { label: '惠采业务中心', value: '惠采业务中心' },
+  { label: '惠采研发中心', value: '惠采研发中心' },
+  { label: '数据管理部', value: '数据管理部' },
+  { label: 'AI研发', value: 'AI研发' },
+  { label: '行业采购', value: '行业采购' },
+  { label: '政采交付', value: '政采交付' },
+  { label: '体验运营', value: '体验运营' },
+  { label: '政采质量保障', value: '政采质量保障' },
 ];
 
 /** 知识管理面板 */
