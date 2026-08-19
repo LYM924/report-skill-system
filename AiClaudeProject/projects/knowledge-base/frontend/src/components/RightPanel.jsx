@@ -423,10 +423,9 @@ function RightPanel({ selectedDoc, onClearDoc }) {
 
   // ===== 文档详情视图 =====
   if (selectedDoc) {
-    // FAQ 文档也走 FAQ 详情视图（支持编辑）
+    // FAQ 文档自动切换到 FAQ 详情视图（支持编辑）
     const isFaqDoc = selectedDoc.path?.includes('FAQ知识库');
     if (isFaqDoc && !selectedFaq) {
-      // 自动切换到 FAQ 详情模式
       const faqId = selectedDoc.id || selectedDoc.faq_id || '';
       const faqInfo = {
         id: faqId,
@@ -438,15 +437,19 @@ function RightPanel({ selectedDoc, onClearDoc }) {
         module: selectedDoc.module || '',
         content: selectedDoc.content || selectedDoc.snippets?.join('\n') || '',
       };
-      // 异步加载完整FAQ内容
+      // 异步加载完整FAQ内容，加载后清除 selectedDoc 让 FAQ 视图渲染
       fetch(`/api/faq?id=${faqId}`).then(r => r.json()).then(data => {
         if (data && !data.error) {
           setSelectedFaq({ ...faqInfo, ...data, content: data.content || faqInfo.content });
         } else {
           setSelectedFaq(faqInfo);
         }
-      }).catch(() => setSelectedFaq(faqInfo));
-      return null; // 加载中，下一次渲染走 FAQ 视图
+        onClearDoc(); // 清除 selectedDoc，让 FAQ 视图接管
+      }).catch(() => {
+        setSelectedFaq(faqInfo);
+        onClearDoc();
+      });
+      return <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>;
     }
 
     return (
