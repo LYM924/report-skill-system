@@ -759,3 +759,17 @@
 2026-08-19 16:10:00 [INFO] 127.0.0.1 - "GET /api/recent HTTP/1.1" 200 -
 2026-08-19 16:10:00 [INFO] 127.0.0.1 - "GET /favicon.svg HTTP/1.1" 200 -
 2026-08-19 16:10:08 [INFO] 127.0.0.1 - "GET /api/document?path=projects%2Fknowledge-base%2Fknowledge%2F%E7%94%B5%E5%AD%90%E6%A1%A3%E6%A1%88%E7%BB%84%2F2026-05_%E7%89%88%E6%9C%AC%E8%BF%AD%E4%BB%A3.md HTTP/1.1" 200 -
+2026-08-19 16:11:59 [INFO] 127.0.0.1 - "GET / HTTP/1.1" 200 -
+2026-08-19 16:11:59 [INFO] 127.0.0.1 - "GET /assets/index-Di_FCS9a.js HTTP/1.1" 200 -
+2026-08-19 16:11:59 [INFO] 127.0.0.1 - "GET /assets/index-0yujsazn.css HTTP/1.1" 200 -
+2026-08-19 16:11:59 [INFO] 127.0.0.1 - code 404, message File not found
+2026-08-19 16:11:59 [INFO] 127.0.0.1 - "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 404 -
+2026-08-19 16:12:01 [INFO] 127.0.0.1 - "GET /api/faq HTTP/1.1" 200 -
+2026-08-19 16:12:01 [INFO] 127.0.0.1 - "GET /api/dashboard HTTP/1.1" 200 -
+2026-08-19 16:12:01 [INFO] 127.0.0.1 - "GET /api/faq HTTP/1.1" 200 -
+2026-08-19 16:12:01 [INFO] 127.0.0.1 - "GET /api/trends HTTP/1.1" 200 -
+2026-08-19 16:12:01 [INFO] 127.0.0.1 - "GET /api/menu HTTP/1.1" 200 -
+2026-08-19 16:12:01 [INFO] 127.0.0.1 - "GET /api/documents HTTP/1.1" 200 -
+2026-08-19 16:12:01 [INFO] 127.0.0.1 - "GET /api/recent HTTP/1.1" 200 -
+2026-08-19 16:12:01 [INFO] 127.0.0.1 - "GET /favicon.svg HTTP/1.1" 200 -
+2026-08-19 16:12:09 [INFO] 127.0.0.1 - "GET /api/hotwords HTTP/1.1" 200 -

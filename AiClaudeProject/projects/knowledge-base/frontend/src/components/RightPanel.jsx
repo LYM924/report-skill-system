@@ -414,7 +414,7 @@ function RightPanel({ selectedDoc, onClearDoc, isDark }) {
               )}
             </div>
             <Divider style={{ margin: '12px 0' }} />
-            <SimpleMarkdown content={...} isDark={isDark} />selectedFaq.content || selectedFaq.answer} />
+            <SimpleMarkdown content={selectedFaq.content || selectedFaq.answer} isDark={isDark} />
           </div>
         )}
       </div>
@@ -491,7 +491,7 @@ function RightPanel({ selectedDoc, onClearDoc, isDark }) {
 
             <Divider style={{ margin: '12px 0' }} />
 
-            <SimpleMarkdown content={...} isDark={isDark} />docDetail.content} />
+            <SimpleMarkdown content={docDetail.content} isDark={isDark} />
           </div>
         ) : (
           <Empty description="无法加载文档" />
