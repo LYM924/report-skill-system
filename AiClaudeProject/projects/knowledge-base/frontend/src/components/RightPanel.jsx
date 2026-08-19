@@ -503,7 +503,7 @@ function RightPanel({ selectedDoc, onClearDoc }) {
   // ===== 默认视图 =====
   const displayFAQs = faqs.length > 0 ? faqs : mockFAQs;
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: 16 }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'auto', padding: 16 }}>
       {/* ===== 1. 高频FAQ ===== */}
       <div style={{
         background: 'linear-gradient(135deg, #0D9488 0%, #2DD4BF 100%)',
@@ -517,27 +517,8 @@ function RightPanel({ selectedDoc, onClearDoc }) {
         <span style={{ cursor: 'pointer', fontSize: 14, opacity: 0.8 }}>▲</span>
       </div>
 
-      {/* 工单问题沉淀 + 趋势图 */}
-      <div style={{ marginBottom: 20 }}>
-        <Text strong style={{ fontSize: 14, display: 'block', marginBottom: 12 }}>工单问题沉淀</Text>
-        <Row gutter={[8, 8]}>
-          <Col span={12}>
-            <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 8, height: 90 }}>
-              <div style={{ fontSize: 11, color: '#999', marginBottom: 4 }}>高频FAQ</div>
-              <MiniChart data={trendData.length > 0 ? trendData : [{month:'-',value:0}]} color="#0D9488" />
-            </div>
-          </Col>
-          <Col span={12}>
-            <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 8, height: 90 }}>
-              <div style={{ fontSize: 11, color: '#999', marginBottom: 4 }}>重复热点问题</div>
-              <MiniChart data={faqTrendData.length > 0 ? faqTrendData : [{month:'-',value:0}]} color="#2DD4BF" />
-            </div>
-          </Col>
-        </Row>
-      </div>
-
       {/* FAQ 列表 */}
-      <div style={{ marginBottom: 16 }}>
+      <div style={{ marginBottom: 16, flexShrink: 0 }}>
         {displayFAQs.slice(0, 3).map(faq => (
           <div
             key={faq.id}
@@ -566,55 +547,45 @@ function RightPanel({ selectedDoc, onClearDoc }) {
         ))}
       </div>
 
-      {/* ===== 2. 相关产品文档 ===== */}
-      <div style={{ marginBottom: 20 }}>
-        <Text strong style={{ fontSize: 14, display: 'block', marginBottom: 12 }}>相关产品文档</Text>
+      {/* ===== 趋势图（一行两个） ===== */}
+      <div style={{ marginBottom: 16, flexShrink: 0 }}>
+        <Text strong style={{ fontSize: 14, display: 'block', marginBottom: 8 }}>数据趋势</Text>
         <Row gutter={[8, 8]}>
           <Col span={12}>
-            <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 8, height: 90 }}>
-              <div style={{ fontSize: 11, color: '#999', marginBottom: 4 }}>文档趋势</div>
-              <MiniChart data={trendData.length > 0 ? trendData : [{month:'3月',value:0},{month:'8月',value:0}]} color="#0D9488" />
+            <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 8 }}>
+              <div style={{ fontSize: 11, color: '#999', marginBottom: 4 }}>FAQ趋势</div>
+              <MiniChart data={faqTrendData.length > 0 ? faqTrendData : [{month:'-',value:0}]} color="#2DD4BF" height={40} />
             </div>
           </Col>
           <Col span={12}>
-            <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 8, height: 90 }}>
-              <MiniChart data={trendData.length > 0 ? trendData : [{month:'-',value:0}]} color="#0D9488" />
+            <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 8 }}>
+              <div style={{ fontSize: 11, color: '#999', marginBottom: 4 }}>文档趋势</div>
+              <MiniChart data={trendData.length > 0 ? trendData : [{month:'-',value:0}]} color="#0D9488" height={40} />
             </div>
           </Col>
         </Row>
       </div>
 
-      {/* ===== 3. 最近更新 ===== */}
-      <div style={{ flex: 1 }}>
-        <Text strong style={{ fontSize: 14, display: 'block', marginBottom: 12 }}>最近更新</Text>
-        <Row gutter={[8, 8]}>
-          <Col span={12}>
-            <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 8, height: 160 }}>
-              {(recentData.length > 0 ? recentData : recentUpdates).slice(0, 3).map(item => (
-                <div key={item.name} style={{ marginBottom: 6, fontSize: 11 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <Avatar size={16} style={{ backgroundColor: '#0D9488', fontSize: 9 }}>
-                      {item.dept?.[0] || '文'}
-                    </Avatar>
-                    <Text ellipsis style={{ fontSize: 11, flex: 1 }}>{item.name}</Text>
-                  </div>
-                  <div style={{ paddingLeft: 20, marginTop: 1 }}>
-                    <Tag color="default" style={{ fontSize: 9, borderRadius: 3, lineHeight: '14px' }}>
-                      更新
-                    </Tag>
-                    <Text type="secondary" style={{ fontSize: 10 }}>{item.updated}</Text>
-                  </div>
-                </div>
-              ))}
+      {/* ===== 最近更新 ===== */}
+      <div style={{ flexShrink: 0 }}>
+        <Text strong style={{ fontSize: 14, display: 'block', marginBottom: 8 }}>最近更新</Text>
+        <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: '8px 10px' }}>
+          {(recentData.length > 0 ? recentData : recentUpdates).slice(0, 5).map((item, i) => (
+            <div key={item.name || i} style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '4px 0',
+              borderBottom: i < 4 ? '1px solid #f5f5f5' : 'none',
+            }}>
+              <Avatar size={20} style={{ backgroundColor: '#0D9488', fontSize: 10, flexShrink: 0 }}>
+                {item.dept?.[0] || '文'}
+              </Avatar>
+              <Text ellipsis style={{ fontSize: 11, flex: 1 }}>{item.name}</Text>
+              <Text type="secondary" style={{ fontSize: 10, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                {item.updated?.slice(5) || ''}
+              </Text>
             </div>
-          </Col>
-          <Col span={12}>
-            <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 8, height: 90 }}>
-              <div style={{ fontSize: 11, color: '#999', marginBottom: 4 }}>FAQ趋势</div>
-              <MiniChart data={faqTrendData.length > 0 ? faqTrendData : [{month:'3月',value:0},{month:'8月',value:0}]} color="#2DD4BF" />
-            </div>
-          </Col>
-        </Row>
+          ))}
+        </div>
       </div>
     </div>
   );

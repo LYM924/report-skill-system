@@ -541,3 +541,16 @@
 2026-08-19 15:33:19 [INFO] 127.0.0.1 - "GET /api/menu HTTP/1.1" 200 -
 2026-08-19 15:33:19 [INFO] 127.0.0.1 - "GET /api/documents HTTP/1.1" 200 -
 2026-08-19 15:33:19 [INFO] 127.0.0.1 - "GET /api/recent HTTP/1.1" 200 -
+2026-08-19 15:36:26 [INFO] 127.0.0.1 - "GET /api/hotwords HTTP/1.1" 200 -
+2026-08-19 15:36:37 [INFO] 127.0.0.1 - "GET / HTTP/1.1" 200 -
+2026-08-19 15:36:37 [INFO] 127.0.0.1 - "GET /assets/index-CvlsA7YA.js HTTP/1.1" 200 -
+2026-08-19 15:36:37 [INFO] 127.0.0.1 - "GET /assets/index-0yujsazn.css HTTP/1.1" 200 -
+2026-08-19 15:36:37 [INFO] 127.0.0.1 - "GET /api/faq HTTP/1.1" 200 -
+2026-08-19 15:36:37 [INFO] 127.0.0.1 - "GET /api/dashboard HTTP/1.1" 200 -
+2026-08-19 15:36:37 [INFO] 127.0.0.1 - "GET /api/faq HTTP/1.1" 200 -
+2026-08-19 15:36:37 [INFO] 127.0.0.1 - "GET /api/trends HTTP/1.1" 200 -
+2026-08-19 15:36:37 [INFO] 127.0.0.1 - "GET /favicon.svg HTTP/1.1" 200 -
+2026-08-19 15:36:37 [INFO] 127.0.0.1 - "GET /api/menu HTTP/1.1" 200 -
+2026-08-19 15:36:37 [INFO] 127.0.0.1 - "GET /api/recent HTTP/1.1" 200 -
+2026-08-19 15:36:37 [INFO] 127.0.0.1 - "GET /api/documents HTTP/1.1" 200 -
+2026-08-19 15:43:54 [INFO] 127.0.0.1 - "GET /api/hotwords HTTP/1.1" 200 -
