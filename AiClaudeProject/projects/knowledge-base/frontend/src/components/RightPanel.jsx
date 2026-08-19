@@ -149,6 +149,14 @@ function SimpleMarkdown({ content }) {
       // 表格结束，渲染
       const header = tableRows[0];
       const body = tableRows.slice(1);
+      // 合并单元格：空单元格继承上一行的值
+      const mergedBody = body.map((row, ri) => {
+        const prevRow = ri > 0 ? body[ri - 1] : null;
+        return row.map((cell, ci) => {
+          if (!cell && prevRow && prevRow[ci]) return prevRow[ci];
+          return cell;
+        });
+      });
       elements.push(
         <div key={`tbl-${i}`} style={{ overflow: 'auto', margin: '8px 0' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -156,16 +164,16 @@ function SimpleMarkdown({ content }) {
               <thead>
                 <tr>
                   {header.map((h, j) => (
-                    <th key={j} style={{ border: '1px solid #e2e8f0', padding: '6px 10px', background: '#f8fafc', textAlign: 'left', fontWeight: 600, color: '#334155' }}>{renderInline(h)}</th>
+                    <th key={j} style={{ border: '1px solid #e2e8f0', padding: '6px 10px', background: '#f8fafc', textAlign: 'left', fontWeight: 600, color: '#334155', whiteSpace: 'nowrap' }}>{renderInline(h)}</th>
                   ))}
                 </tr>
               </thead>
             )}
             <tbody>
-              {body.map((row, ri) => (
-                <tr key={ri}>
+              {mergedBody.map((row, ri) => (
+                <tr key={ri} style={{ background: ri % 2 === 0 ? '#fff' : '#fafafa' }}>
                   {row.map((cell, cj) => (
-                    <td key={cj} style={{ border: '1px solid #e2e8f0', padding: '6px 10px', color: '#4B5563' }}>{renderInline(cell)}</td>
+                    <td key={cj} style={{ border: '1px solid #e2e8f0', padding: '6px 10px', color: '#4B5563', whiteSpace: cj === 0 ? 'nowrap' : 'normal' }}>{renderInline(cell)}</td>
                   ))}
                 </tr>
               ))}
@@ -238,6 +246,13 @@ function SimpleMarkdown({ content }) {
   if (inTable && tableRows.length > 0) {
     const header = tableRows[0];
     const body = tableRows.slice(1);
+    const mergedBody = body.map((row, ri) => {
+      const prevRow = ri > 0 ? body[ri - 1] : null;
+      return row.map((cell, ci) => {
+        if (!cell && prevRow && prevRow[ci]) return prevRow[ci];
+        return cell;
+      });
+    });
     elements.push(
       <div key="tbl-end" style={{ overflow: 'auto', margin: '8px 0' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -251,8 +266,8 @@ function SimpleMarkdown({ content }) {
             </thead>
           )}
           <tbody>
-            {body.map((row, ri) => (
-              <tr key={ri}>
+            {mergedBody.map((row, ri) => (
+              <tr key={ri} style={{ background: ri % 2 === 0 ? '#fff' : '#fafafa' }}>
                 {row.map((cell, cj) => (
                   <td key={cj} style={{ border: '1px solid #e2e8f0', padding: '6px 10px' }}>{renderInline(cell)}</td>
                 ))}
