@@ -46,7 +46,7 @@ function MiniChart({ data, color = '#0D9488', height = 50 }) {
 }
 
 /** 简单 Markdown 渲染（标题、列表、表格、图片、链接、粗体、代码等） */
-function SimpleMarkdown({ content }) {
+function SimpleMarkdown({ content, isDark }) {
   if (!content) return <Text type="secondary">暂无内容</Text>;
 
   /** 渲染行内元素：图片、链接、粗体、行内代码、删除线 */
@@ -414,7 +414,7 @@ function RightPanel({ selectedDoc, onClearDoc, isDark }) {
               )}
             </div>
             <Divider style={{ margin: '12px 0' }} />
-            <SimpleMarkdown content={selectedFaq.content || selectedFaq.answer} />
+            <SimpleMarkdown content={...} isDark={isDark} />selectedFaq.content || selectedFaq.answer} />
           </div>
         )}
       </div>
@@ -491,7 +491,7 @@ function RightPanel({ selectedDoc, onClearDoc, isDark }) {
 
             <Divider style={{ margin: '12px 0' }} />
 
-            <SimpleMarkdown content={docDetail.content} />
+            <SimpleMarkdown content={...} isDark={isDark} />docDetail.content} />
           </div>
         ) : (
           <Empty description="无法加载文档" />
