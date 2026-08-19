@@ -351,15 +351,15 @@ class SearchHandler(SimpleHTTPRequestHandler):
                 if doc_path.exists():
                     mtime = doc_path.stat().st_mtime
                     updated = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
-                # 提取文档关键词（从内容中匹配关键词索引，取前5个高频词）
+                # 关键词：从文档路径和标题中提取，取前 5 个
                 keywords = []
                 content_sample = doc.get("content_sample", "")
                 if content_sample:
                     from collections import Counter
                     kw_counter = Counter()
                     for kw in eng.keyword_map:
-                        if kw in content_sample:
-                            kw_counter[kw] = content_sample.count(kw)
+                        if len(kw) >= 2 and kw in content_sample:
+                            kw_counter[kw] += 1
                     keywords = [kw for kw, _ in kw_counter.most_common(5)]
                 docs.append({
                     "id": hash(doc["path"]) % 10000,

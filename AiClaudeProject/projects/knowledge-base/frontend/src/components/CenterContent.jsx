@@ -787,35 +787,41 @@ function DeptBrowser({ dept, isDark, onSelectDoc }) {
     ? docs.filter(d => d.name.includes(searchFilter) || d.dept.includes(searchFilter))
     : docs;
 
+  const borderColor = isDark ? '#303030' : '#ebeef5';
+
   return (
     <div style={{ width: '100%' }}>
-      {/* 标题栏 */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
-        <Text strong style={{ fontSize: 22, fontWeight: 600, color: isDark ? '#e5e5e5' : '#222' }}>
-          文档检索结果
-        </Text>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <div style={{ display: 'flex', border: '1px solid #dcdfe6', borderRadius: 8, overflow: 'hidden' }}>
-            <Input
-              placeholder="搜索"
-              value={searchFilter}
-              onChange={e => setSearchFilter(e.target.value)}
-              style={{ border: 'none', width: 200, outline: 'none' }}
-            />
-            <Button type="text" icon={<SearchOutlined />} style={{ border: 'none' }} />
-          </div>
-          <Text type="secondary" style={{ fontSize: 13 }}>
-            {dept} · {filteredDocs.length} 条文档
+      {/* 卡片容器 */}
+      <Card
+        style={{ borderRadius: 12, border: `1px solid ${isDark ? '#303030' : '#e2e8f0'}`, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}
+        styles={{ body: { padding: '20px 24px' } }}
+      >
+        {/* 标题栏 */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+          <Text strong style={{ fontSize: 20, fontWeight: 600, color: isDark ? '#e5e5e5' : '#222' }}>
+            {dept}
           </Text>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <div style={{ display: 'flex', border: `1px solid ${borderColor}`, borderRadius: 8, overflow: 'hidden' }}>
+              <Input
+                placeholder="搜索文档..."
+                value={searchFilter}
+                onChange={e => setSearchFilter(e.target.value)}
+                style={{ border: 'none', width: 200, outline: 'none' }}
+              />
+              <Button type="text" icon={<SearchOutlined />} style={{ border: 'none', color: '#999' }} />
+            </div>
+            <Text type="secondary" style={{ fontSize: 13, whiteSpace: 'nowrap' }}>
+              共 {filteredDocs.length} 条
+            </Text>
+          </div>
         </div>
-      </div>
 
-      {/* 文档表格 */}
-      <Card style={{ borderRadius: 12, border: `1px solid ${isDark ? '#303030' : '#e2e8f0'}`, padding: 0 }} styles={{ body: { padding: 0 } }}>
+        {/* 文档表格 */}
         {loading ? (
           <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
         ) : filteredDocs.length === 0 ? (
-          <Empty description="该部门暂无知识文档" style={{ padding: '40px 0' }} />
+          <Empty description={searchFilter ? '无匹配文档' : '该部门暂无知识文档'} style={{ padding: '40px 0' }} />
         ) : (
           <Table
             dataSource={filteredDocs}
@@ -832,11 +838,11 @@ function DeptBrowser({ dept, isDark, onSelectDoc }) {
                 render: text => <Text strong style={{ fontSize: 14, color: isDark ? '#e5e5e5' : '#303133' }}>{text}</Text>,
               },
               {
-                title: '所属部门', dataIndex: 'dept', key: 'dept',
+                title: '所属部门', dataIndex: 'dept', key: 'dept', width: 120,
                 render: text => <span style={{ color: isDark ? '#bbb' : '#606266' }}>{text || '-'}</span>,
               },
               {
-                title: '更新时间', dataIndex: 'updated', key: 'updated', width: 120,
+                title: '更新时间', dataIndex: 'updated', key: 'updated', width: 110,
                 render: text => <span style={{ color: isDark ? '#bbb' : '#606266' }}>{text || '-'}</span>,
               },
               {
@@ -846,7 +852,7 @@ function DeptBrowser({ dept, isDark, onSelectDoc }) {
                 )),
               },
               {
-                title: '置信度', dataIndex: 'confidence', key: 'confidence', width: 80, align: 'center',
+                title: '置信度', dataIndex: 'confidence', key: 'confidence', width: 75, align: 'center',
                 render: val => <span style={{ color: '#0D9488', fontWeight: 500 }}>{val}%</span>,
               },
             ]}
