@@ -243,6 +243,7 @@ function App() {
                 <RightPanel
                   selectedDoc={selectedDoc}
                   onClearDoc={() => setSelectedDoc(null)}
+                  isDark={isDark}
                 />
               </div>
             </div>

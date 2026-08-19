@@ -282,7 +282,7 @@ function SimpleMarkdown({ content }) {
   return <div style={{ maxHeight: 'calc(100vh - 200px)', overflow: 'auto' }}>{elements}</div>;
 }
 
-function RightPanel({ selectedDoc, onClearDoc }) {
+function RightPanel({ selectedDoc, onClearDoc, isDark }) {
   const [faqs, setFaqs] = useState([]);
   const [docDetail, setDocDetail] = useState(null);
   const [docLoading, setDocLoading] = useState(false);
@@ -524,8 +524,8 @@ function RightPanel({ selectedDoc, onClearDoc }) {
             key={faq.id}
             onClick={() => handleFaqClick(faq)}
             style={{
-              marginBottom: 6, border: '1px solid #f0f0f0', borderRadius: 8,
-              padding: '8px 10px', cursor: 'pointer', background: '#fff',
+              marginBottom: 6, border: `1px solid ${isDark ? '#333' : '#f0f0f0'}`, borderRadius: 8,
+              padding: '8px 10px', cursor: 'pointer', background: isDark ? '#1e1e1e' : '#fff',
               transition: 'box-shadow 0.15s',
             }}
             onMouseEnter={e => e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.06)'}
@@ -552,13 +552,13 @@ function RightPanel({ selectedDoc, onClearDoc }) {
         <Text strong style={{ fontSize: 14, display: 'block', marginBottom: 8 }}>数据趋势</Text>
         <Row gutter={[8, 8]}>
           <Col span={12}>
-            <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 8 }}>
+            <div style={{ border: `1px solid ${isDark ? '#333' : '#f0f0f0'}`, borderRadius: 8, padding: 8, background: isDark ? '#1e1e1e' : '#fff' }}>
               <div style={{ fontSize: 11, color: '#999', marginBottom: 4 }}>FAQ趋势</div>
               <MiniChart data={faqTrendData.length > 0 ? faqTrendData : [{month:'-',value:0}]} color="#2DD4BF" height={40} />
             </div>
           </Col>
           <Col span={12}>
-            <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 8 }}>
+            <div style={{ border: `1px solid ${isDark ? '#333' : '#f0f0f0'}`, borderRadius: 8, padding: 8, background: isDark ? '#1e1e1e' : '#fff' }}>
               <div style={{ fontSize: 11, color: '#999', marginBottom: 4 }}>文档趋势</div>
               <MiniChart data={trendData.length > 0 ? trendData : [{month:'-',value:0}]} color="#0D9488" height={40} />
             </div>
@@ -574,7 +574,7 @@ function RightPanel({ selectedDoc, onClearDoc }) {
             <div key={item.name || i} style={{
               display: 'flex', alignItems: 'center', gap: 8,
               padding: '4px 0',
-              borderBottom: i < 4 ? '1px solid #f5f5f5' : 'none',
+              borderBottom: i < 4 ? `1px solid ${isDark ? '#333' : '#f5f5f5'}` : 'none',
             }}>
               <Avatar size={20} style={{ backgroundColor: '#0D9488', fontSize: 10, flexShrink: 0 }}>
                 {item.dept?.[0] || '文'}
