@@ -274,22 +274,47 @@ export async function getMenu() {
 /**
  * 获取关键词列表
  */
-export async function getKeywords() {
-  return await apiFetch('/keywords');
+export async function getKeywords(q = '', page = 1) {
+  return await apiFetch('/keywords', { q, page, page_size: 100 });
 }
 
 /**
- * 添加关键词
+ * 添加关键词映射
+ * @param {{keyword, module_id, dept_id, dept, module}} params
  */
-export async function addKeyword(keyword, module, dept) {
-  return await apiFetch('/keywords/add', { keyword, module, dept });
+export async function addKeyword({ keyword, module_id, dept_id, dept, module }) {
+  const resp = await fetch(`${API_BASE}/keywords`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ keyword, module_id, dept_id, dept, module }),
+  });
+  return await resp.json();
 }
 
 /**
- * 删除关键词
+ * 更新关键词映射（通过 mapping_id 定位）
+ * @param {{mapping_id, keyword?, module_id?, dept_id?, dept?}} params
  */
-export async function deleteKeyword(keyword) {
-  return await apiFetch('/keywords/delete', { keyword });
+export async function updateKeyword({ mapping_id, keyword, module_id, dept_id, dept }) {
+  const resp = await fetch(`${API_BASE}/keywords`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mapping_id, keyword, module_id, dept_id, dept }),
+  });
+  return await resp.json();
+}
+
+/**
+ * 删除关键词映射
+ * @param {{mapping_id?, keyword_id?}} params
+ */
+export async function deleteKeyword({ mapping_id, keyword_id } = {}) {
+  const resp = await fetch(`${API_BASE}/keywords`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mapping_id, keyword_id }),
+  });
+  return await resp.json();
 }
 
 /**

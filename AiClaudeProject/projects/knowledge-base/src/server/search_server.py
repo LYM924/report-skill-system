@@ -257,6 +257,14 @@ class SearchHandler(SimpleHTTPRequestHandler):
         # API 路径需要认证
         return path.startswith("/api/")
 
+    def _read_json(self):
+        """读取 POST/PUT/DELETE 请求的 JSON body"""
+        content_length = int(self.headers.get('Content-Length', 0))
+        if content_length == 0:
+            return {}
+        body = self.rfile.read(content_length).decode('utf-8')
+        return json.loads(body) if body else {}
+
     def do_GET(self):
         parsed = urlparse(self.path)
 
@@ -1316,7 +1324,7 @@ tickets: []
             scored.sort(key=lambda x: x["score"], reverse=True)
             self._json({"faqs": scored[:5]})
         elif parsed.path == "/api/keywords":
-            """返回关键词列表（支持搜索）"""
+            """返回关键词列表（支持搜索）- 从新表读取，包含 ID 信息"""
             eng = get_engine()
             params = parse_qs(parsed.query)
             q = params.get("q", [""])[0].strip()
@@ -1326,8 +1334,20 @@ tickets: []
             keywords = []
             for kw, entries in eng.keyword_map.items():
                 if not q or q in kw:
+                    # 聚合条目信息，保留 ID
+                    mappings = []
+                    for e in entries:
+                        mappings.append({
+                            "mapping_id": e.get("mapping_id", 0),
+                            "keyword_id": e.get("keyword_id", 0),
+                            "module": e.get("module", ""),
+                            "module_id": e.get("module_id", 0),
+                            "dept": e.get("dept", ""),
+                            "dept_id": e.get("dept_id", 0),
+                        })
                     keywords.append({
                         "keyword": kw,
+                        "mappings": mappings,
                         "modules": list(set(e.get("module", "") for e in entries)),
                         "depts": list(set(e.get("dept", "") for e in entries)),
                         "count": len(entries),
@@ -1341,85 +1361,6 @@ tickets: []
                 "page": page,
                 "page_size": page_size,
             })
-
-        elif parsed.path == "/api/keywords/add":
-            """添加关键词映射"""
-            params = parse_qs(parsed.query)
-            keyword = params.get("keyword", [""])[0].strip()
-            module = params.get("module", [""])[0].strip()
-            dept = params.get("dept", [""])[0].strip()
-            if not keyword or not module:
-                self._json({"error": "keyword 和 module 为必填参数"})
-                return
-            eng = get_engine()
-            # Add to keyword_map
-            entry = {"module": module, "dept": dept,
-                    "domain": "", "kb_path": "", "note": "手动添加"}
-            eng.keyword_map[keyword].append(entry)
-            eng.save_cache()
-            server_logger.info(f"KEYWORD_ADD {keyword} -> {module} ({dept})")
-            self._json({"ok": True, "keyword": keyword, "module": module})
-
-        elif parsed.path == "/api/keywords/delete":
-            """删除关键词"""
-            eng = get_engine()
-            params = parse_qs(parsed.query)
-            keyword = params.get("keyword", [""])[0].strip()
-            if not keyword or keyword not in eng.keyword_map:
-                self._json({"error": "关键词不存在"})
-                return
-            del eng.keyword_map[keyword]
-            eng.save_cache()
-            server_logger.info(f"KEYWORD_DELETE {keyword}")
-            self._json({"ok": True})
-
-        elif parsed.path == "/api/keywords/update":
-            """更新关键词（修改模块/部门/关键词名，保留关联关系）"""
-            eng = get_engine()
-            params = parse_qs(parsed.query)
-            old_keyword = params.get("old_keyword", [""])[0].strip()
-            old_module = params.get("old_module", [""])[0].strip()
-            new_keyword = params.get("new_keyword", [""])[0].strip()
-            new_module = params.get("new_module", [""])[0].strip()
-            new_dept = params.get("new_dept", [""])[0].strip()
-
-            if not old_keyword or old_keyword not in eng.keyword_map:
-                self._json({"error": "原关键词不存在"})
-                return
-
-            # 找到匹配 old_module 的条目
-            entries = eng.keyword_map[old_keyword]
-            idx = None
-            for i, e in enumerate(entries):
-                if e.get("module", "") == old_module:
-                    idx = i
-                    break
-            if idx is None:
-                self._json({"error": f"未找到关键词 '{old_keyword}' 中模块 '{old_module}' 的条目"})
-                return
-
-            # 更新条目信息
-            target_keyword = new_keyword or old_keyword
-            entries[idx] = {
-                "module": new_module or entries[idx].get("module", ""),
-                "dept": new_dept or entries[idx].get("dept", ""),
-                "domain": entries[idx].get("domain", ""),
-                "kb_path": entries[idx].get("kb_path", ""),
-                "note": entries[idx].get("note", "手动修改"),
-            }
-
-            # 如果关键词名变了，移动 key
-            if new_keyword and new_keyword != old_keyword:
-                eng.keyword_map[new_keyword] = eng.keyword_map.pop(old_keyword)
-                # 更新所有文档中引用此关键词的 frontmatter
-                for doc in eng.kb_docs:
-                    kw_list = doc.get("keywords", [])
-                    if isinstance(kw_list, list) and old_keyword in kw_list:
-                        kw_list[kw_list.index(old_keyword)] = new_keyword
-
-            eng.save_cache()
-            server_logger.info(f"KEYWORD_UPDATE {old_keyword}->{target_keyword} module={new_module} dept={new_dept}")
-            self._json({"ok": True, "keyword": target_keyword})
 
         elif parsed.path == "/api/document/update":
             """更新文档元数据（部门、产品模块、关键词、文件名），不修改正文内容"""
@@ -1836,8 +1777,182 @@ imported: {datetime.datetime.now().isoformat()}
             return
         elif parsed.path in ("/api/feedback", "/api/rag", "/api/chat", "/api/faq/import"):
             self.do_GET()
+        elif parsed.path == "/api/keywords":
+            self._handle_keyword_add()
         else:
             self.send_error(404)
+
+    def do_PUT(self):
+        """处理 PUT 请求"""
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/keywords":
+            self._handle_keyword_update()
+        else:
+            self.send_error(404)
+
+    def do_DELETE(self):
+        """处理 DELETE 请求"""
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/keywords":
+            self._handle_keyword_delete()
+        else:
+            self.send_error(404)
+
+    # ══════ 关键词 CRUD 处理器（ID方案，DB主写） ══════
+
+    def _handle_keyword_add(self):
+        """POST /api/keywords - 新增关键词映射"""
+        data = self._read_json()
+        keyword = (data.get("keyword", "") or "").strip()
+        module_id = data.get("module_id", 0)
+        module_name = (data.get("module", "") or "").strip()
+        dept_id = data.get("dept_id", 0)
+        dept = (data.get("dept", "") or "").strip()
+
+        if not keyword:
+            self._json({"error": "keyword 为必填参数"})
+            return
+        if not module_id and not module_name:
+            self._json({"error": "module_id 或 module 为必填参数"})
+            return
+
+        # 如果传了 module 名称但没传 module_id，从 DB 查找
+        if not module_id and module_name and db_repo:
+            row = db_repo._execute_one(
+                "SELECT id FROM modules WHERE name = ? LIMIT 1", (module_name,)
+            )
+            if row:
+                module_id = row["id"]
+
+        if db_repo:
+            result = db_repo.add_keyword(keyword, module_id, dept_id, dept)
+            if result.get("error"):
+                self._json({"error": result["error"]})
+                return
+        else:
+            result = {}
+
+        # 同步到内存 keyword_map
+        eng = get_engine()
+        entry = {
+            "module": module_name,
+            "dept": dept,
+            "module_id": module_id,
+            "dept_id": dept_id,
+            "keyword_id": result.get("keyword_id", 0) if db_repo else 0,
+            "mapping_id": result.get("mapping_id", 0) if db_repo else 0,
+            "domain": "", "kb_path": "", "note": "手动添加",
+        }
+        if not eng.keyword_map.get(keyword):
+            eng.keyword_map[keyword] = []
+        eng.keyword_map[keyword].append(entry)
+        eng.save_cache()
+        server_logger.info(f"KEYWORD_ADD {keyword} module_id={module_id} dept_id={dept_id}")
+        self._json({"ok": True, "keyword": keyword, "mapping_id": result.get("mapping_id") if db_repo else 0})
+
+    def _handle_keyword_update(self):
+        """PUT /api/keywords - 修改关键词映射"""
+        data = self._read_json()
+        mapping_id = data.get("mapping_id", 0)
+        keyword = (data.get("keyword", "") or "").strip()
+        module_id = data.get("module_id", 0)
+        module_name = (data.get("module", "") or "").strip()
+        dept_id = data.get("dept_id", 0)
+        dept = (data.get("dept", "") or "").strip()
+
+        if not mapping_id:
+            self._json({"error": "mapping_id 为必填参数"})
+            return
+
+        # 如果传了 module 名称但没传 module_id，从 DB 查找
+        if not module_id and module_name and db_repo:
+            row = db_repo._execute_one(
+                "SELECT id FROM modules WHERE name = ? LIMIT 1", (module_name,)
+            )
+            if row:
+                module_id = row["id"]
+
+        eng = get_engine()
+
+        # 在内存中查找并更新
+        old_keyword = None
+        found = False
+        for kw, entries in eng.keyword_map.items():
+            for i, e in enumerate(entries):
+                if e.get("mapping_id") == mapping_id:
+                    old_keyword = kw
+                    if keyword and keyword != kw:
+                        # 关键词改名：移动 key
+                        entries[i]["keyword"] = keyword
+                        # 同步文档引用
+                        for doc in eng.kb_docs:
+                            kw_list = doc.get("keywords", [])
+                            if isinstance(kw_list, list) and kw in kw_list:
+                                kw_list[kw_list.index(kw)] = keyword
+                    if module_id:
+                        entries[i]["module_id"] = module_id
+                    if module_name:
+                        entries[i]["module"] = module_name
+                    if dept_id:
+                        entries[i]["dept_id"] = dept_id
+                    if dept:
+                        entries[i]["dept"] = dept
+                    entries[i]["note"] = "手动修改"
+                    found = True
+                    break
+            if found:
+                if keyword and keyword != old_keyword:
+                    eng.keyword_map[keyword] = eng.keyword_map.pop(old_keyword)
+                break
+
+        if not found:
+            self._json({"error": f"未找到 mapping_id={mapping_id} 的映射"})
+            return
+
+        # 写 DB
+        if db_repo:
+            db_repo.update_keyword(mapping_id, keyword=keyword or None,
+                                   module_id=module_id or None,
+                                   dept_id=dept_id or None, dept=dept or None)
+
+        eng.save_cache()
+        server_logger.info(f"KEYWORD_UPDATE mapping_id={mapping_id} keyword={keyword} module_id={module_id} dept_id={dept_id}")
+        self._json({"ok": True, "mapping_id": mapping_id, "keyword": keyword or old_keyword})
+
+    def _handle_keyword_delete(self):
+        """DELETE /api/keywords - 删除关键词映射或整个关键词"""
+        data = self._read_json()
+        mapping_id = data.get("mapping_id", 0)
+        keyword_id = data.get("keyword_id", 0)
+
+        if not mapping_id and not keyword_id:
+            self._json({"error": "请提供 mapping_id 或 keyword_id"})
+            return
+
+        eng = get_engine()
+
+        if mapping_id:
+            # 删除单个映射
+            if db_repo:
+                db_repo.delete_mapping(mapping_id)
+            # 更新内存
+            for kw, entries in list(eng.keyword_map.items()):
+                eng.keyword_map[kw] = [e for e in entries if e.get("mapping_id") != mapping_id]
+                if not eng.keyword_map[kw]:
+                    del eng.keyword_map[kw]
+            server_logger.info(f"KEYWORD_DELETE_MAPPING mapping_id={mapping_id}")
+        elif keyword_id:
+            # 删除整个关键词
+            if db_repo:
+                db_repo.delete_keyword(keyword_id)
+            # 更新内存
+            for kw, entries in list(eng.keyword_map.items()):
+                if any(e.get("keyword_id") == keyword_id for e in entries):
+                    del eng.keyword_map[kw]
+            server_logger.info(f"KEYWORD_DELETE_ALL keyword_id={keyword_id}")
+
+        eng.save_cache()
+        self._json({"ok": True})
 
     def _sse_start(self):
         """发送 SSE 响应头"""
@@ -2042,6 +2157,15 @@ def main():
     except Exception:
         print("  ⚠️  数据库不可用，使用文件存储")
         db_repo = None
+
+    # 自动迁移关键词到 v2 新表（幂等）
+    if db_repo:
+        try:
+            result = db_repo.migrate_keywords_to_v2()
+            if result.get("status") == "ok":
+                print(f"  📝 关键词已迁移到 v2: {result['keywords']} 关键词, {result['mappings']} 映射")
+        except Exception:
+            pass
 
     load_counter()
     load_sessions()

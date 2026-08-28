@@ -146,8 +146,13 @@ class SearchEngine:
                 self.synonyms = json.load(f)
 
     def _load_keyword_index(self):
-        """获取关键词→模块映射（优先数据库）"""
+        """获取关键词→模块映射（优先数据库新表）"""
         if self.repo:
+            # 优先从新表加载（ID方案）
+            self.keyword_map = defaultdict(list, self.repo.get_all_keywords_v2())
+            if self.keyword_map:
+                return
+            # 新表为空，回退到旧表
             self.keyword_map = defaultdict(list, self.repo.get_all_keywords())
             return
         # 文件回退

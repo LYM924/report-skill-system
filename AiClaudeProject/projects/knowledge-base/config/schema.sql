@@ -170,3 +170,36 @@ CREATE INDEX IF NOT EXISTS idx_faqs_dept ON faqs(dept, sub_module);
 CREATE INDEX IF NOT EXISTS idx_faqs_status ON faqs(status, is_deleted);
 CREATE INDEX IF NOT EXISTS idx_faqs_category ON faqs(category_id);
 CREATE INDEX IF NOT EXISTS idx_faqs_tags ON faqs(tags);
+
+-- ============================================================================
+-- 关键词表 v2：关键词实体与映射分离
+-- 旧 keywords 表保留（向后兼容），迁移后废弃
+-- ============================================================================
+
+-- 关键词实体表
+CREATE TABLE IF NOT EXISTS keywords_v2 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    keyword TEXT NOT NULL UNIQUE,
+    created_at TEXT,
+    updated_at TEXT,
+    is_deleted INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_keywords_v2_kw ON keywords_v2(keyword);
+
+-- 关键词→模块→部门 映射表
+CREATE TABLE IF NOT EXISTS keyword_mappings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    keyword_id INTEGER NOT NULL REFERENCES keywords_v2(id),
+    module_id INTEGER REFERENCES modules(id),
+    department_id INTEGER REFERENCES departments(id),
+    department TEXT,
+    domain TEXT,
+    kb_path TEXT,
+    note TEXT,
+    created_at TEXT,
+    updated_at TEXT,
+    is_deleted INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_kwm_keyword ON keyword_mappings(keyword_id);
+CREATE INDEX IF NOT EXISTS idx_kwm_module ON keyword_mappings(module_id);
+CREATE INDEX IF NOT EXISTS idx_kwm_dept ON keyword_mappings(department_id);

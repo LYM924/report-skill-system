@@ -187,6 +187,165 @@ class DBRepository(KnowledgeRepository):
 
         return dict(keyword_map)
 
+    # ══════ Keywords v2 (ID-based) ══════
+
+    def get_all_keywords_v2(self) -> dict[str, list[dict]]:
+        """从新表加载关键词索引，返回兼容 keyword_map 格式"""
+        keyword_map = defaultdict(list)
+        now = datetime.now().isoformat()
+        rows = self._execute("""
+            SELECT kw.id as keyword_id, kw.keyword,
+                   km.id as mapping_id, km.module_id, km.department_id,
+                   km.department, km.domain, km.kb_path, km.note,
+                   m.name as module_name,
+                   d.name as dept_name
+            FROM keyword_mappings km
+            JOIN keywords_v2 kw ON km.keyword_id = kw.id
+            LEFT JOIN modules m ON km.module_id = m.id
+            LEFT JOIN departments d ON km.department_id = d.id
+            WHERE kw.is_deleted = 0 AND km.is_deleted = 0
+        """)
+        for row in rows:
+            keyword_map[row["keyword"]].append({
+                "mapping_id": row["mapping_id"],
+                "keyword_id": row["keyword_id"],
+                "module": row["module_name"] or "",
+                "module_id": row["module_id"] or 0,
+                "dept": row["dept_name"] or row["department"] or "",
+                "dept_id": row["department_id"] or 0,
+                "domain": row["domain"] or "",
+                "kb_path": row["kb_path"] or "",
+                "note": row["note"] or "",
+            })
+        return dict(keyword_map)
+
+    def add_keyword(self, keyword: str, module_id: int, dept_id: int, dept: str = "") -> dict:
+        """新增关键词+映射，返回 {keyword_id, mapping_id}"""
+        now = datetime.now().isoformat()
+        # INSERT OR IGNORE 关键词
+        self._execute_write(
+            "INSERT OR IGNORE INTO keywords_v2 (keyword, created_at, updated_at) VALUES (?, ?, ?)",
+            (keyword, now, now)
+        )
+        row = self._execute_one("SELECT id FROM keywords_v2 WHERE keyword = ?", (keyword,))
+        keyword_id = row["id"] if row else None
+        if not keyword_id:
+            return {"error": "关键词写入失败"}
+        # INSERT 映射
+        self._execute_write(
+            "INSERT INTO keyword_mappings (keyword_id, module_id, department_id, department, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (keyword_id, module_id, dept_id, dept, now, now)
+        )
+        mapping_id = self._execute_one(
+            "SELECT id FROM keyword_mappings WHERE keyword_id = ? AND module_id = ? ORDER BY id DESC LIMIT 1",
+            (keyword_id, module_id)
+        )
+        return {"keyword_id": keyword_id, "mapping_id": mapping_id["id"] if mapping_id else None}
+
+    def update_keyword(self, mapping_id: int, keyword: str = None, module_id: int = None,
+                       dept_id: int = None, dept: str = None) -> bool:
+        """更新关键词映射（通过 mapping_id 定位）"""
+        now = datetime.now().isoformat()
+        # 先获取当前记录
+        current = self._execute_one(
+            "SELECT keyword_id FROM keyword_mappings WHERE id = ? AND is_deleted = 0",
+            (mapping_id,)
+        )
+        if not current:
+            return False
+        keyword_id = current["keyword_id"]
+        # 如果 keyword 文本变了，更新 keywords_v2 表
+        if keyword:
+            self._execute_write(
+                "UPDATE keywords_v2 SET keyword = ?, updated_at = ? WHERE id = ?",
+                (keyword, now, keyword_id)
+            )
+        # 更新映射记录
+        fields = ["updated_at = ?"]
+        params = [now]
+        if module_id is not None:
+            fields.append("module_id = ?")
+            params.append(module_id)
+        if dept_id is not None:
+            fields.append("department_id = ?")
+            params.append(dept_id)
+        if dept is not None:
+            fields.append("department = ?")
+            params.append(dept)
+        params.append(mapping_id)
+        self._execute_write(
+            f"UPDATE keyword_mappings SET {', '.join(fields)} WHERE id = ?",
+            params
+        )
+        return True
+
+    def delete_mapping(self, mapping_id: int) -> bool:
+        """软删除一条关键词映射"""
+        now = datetime.now().isoformat()
+        self._execute_write(
+            "UPDATE keyword_mappings SET is_deleted = 1, updated_at = ? WHERE id = ?",
+            (now, mapping_id)
+        )
+        return True
+
+    def delete_keyword(self, keyword_id: int) -> bool:
+        """软删除关键词及其所有映射"""
+        now = datetime.now().isoformat()
+        self._execute_write(
+            "UPDATE keywords_v2 SET is_deleted = 1, updated_at = ? WHERE id = ?",
+            (now, keyword_id)
+        )
+        self._execute_write(
+            "UPDATE keyword_mappings SET is_deleted = 1, updated_at = ? WHERE keyword_id = ?",
+            (now, keyword_id)
+        )
+        return True
+
+    def migrate_keywords_to_v2(self):
+        """将旧 keywords 表数据迁移到新表（幂等：已迁移的跳过）"""
+        # 检查是否已有数据
+        existing = self._execute_one("SELECT COUNT(*) as cnt FROM keywords_v2")
+        if existing and existing["cnt"] > 0:
+            return {"status": "skipped", "reason": f"keywords_v2 已有 {existing['cnt']} 条数据"}
+
+        old_rows = self._execute("""
+            SELECT DISTINCT k.keyword, k.module_id, k.department, k.domain, k.kb_path, k.note,
+                   m.name as module_name, m.department_id as dept_id_from_module
+            FROM keywords k
+            LEFT JOIN modules m ON k.module_id = m.id
+        """)
+        if not old_rows:
+            return {"status": "empty", "reason": "旧 keywords 表无数据"}
+
+        now = datetime.now().isoformat()
+        keyword_count = 0
+        mapping_count = 0
+
+        for row in old_rows:
+            # 写入关键词
+            self._execute_write(
+                "INSERT OR IGNORE INTO keywords_v2 (keyword, created_at, updated_at) VALUES (?, ?, ?)",
+                (row["keyword"], now, now)
+            )
+            kw = self._execute_one("SELECT id FROM keywords_v2 WHERE keyword = ?", (row["keyword"],))
+            if not kw:
+                continue
+            keyword_count += 1
+
+            # 写入映射
+            dept_id = row.get("dept_id_from_module") or 0
+            self._execute_write(
+                "INSERT INTO keyword_mappings (keyword_id, module_id, department_id, department, domain, kb_path, note, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (kw["id"], row["module_id"], dept_id,
+                 row["department"] or "", row["domain"] or "",
+                 row["kb_path"] or "", row["note"] or "", now, now)
+            )
+            mapping_count += 1
+
+        return {"status": "ok", "keywords": keyword_count, "mappings": mapping_count}
+
     # ══════ Synonyms ══════
 
     def get_synonyms(self) -> dict[str, list[str]]:
