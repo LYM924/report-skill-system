@@ -1,11 +1,11 @@
 {
   "_meta": {
-    "kb_count": 88,
-    "faq_count": 358,
+    "kb_count": 89,
+    "faq_count": 359,
     "report_count": 12,
-    "path_hash": "d633008463fbeecfa56f175acf947311",
+    "path_hash": "8a1732a8f022b92ec418fbd644ecf04e",
     "cache_version": 0,
-    "updated": "2026-08-28T09:25:56.259693"
+    "updated": "2026-08-28T11:49:00.481813"
   },
   "keyword_map": {
     "预算": [
@@ -17275,6 +17275,13 @@
         "domain": "免疫规划组",
         "kb_path": "2026产品业务知识库/免疫规划组/2025-03-13_版本迭代.md",
         "note": "来自 2025-03-13_版本迭代"
+      },
+      {
+        "module": "",
+        "dept": "",
+        "domain": "",
+        "kb_path": "data/faq/mian_yi_gui_hua_zu/public-service/Q：用户咨询便民付问题，如对接、操作手册等，如何回复.md",
+        "note": ""
       }
     ],
     "数字化门诊": [
@@ -27229,6 +27236,96 @@
         "kb_path": "data/faq/zhe-li-bao/zhelibao/浙里报是做什么的.md",
         "note": ""
       }
+    ],
+    "合同": [
+      {
+        "module": "合同",
+        "dept": "业务研发部",
+        "domain": "业务研发部",
+        "kb_path": "data/knowledge/dian_zi_mai_chang/he-tong/【规划】243号文优化-合同内容变更优化.md",
+        "note": ""
+      }
+    ],
+    "变更": [
+      {
+        "module": "合同",
+        "dept": "业务研发部",
+        "domain": "业务研发部",
+        "kb_path": "data/knowledge/dian_zi_mai_chang/he-tong/【规划】243号文优化-合同内容变更优化.md",
+        "note": ""
+      }
+    ],
+    "公告": [
+      {
+        "module": "合同",
+        "dept": "业务研发部",
+        "domain": "业务研发部",
+        "kb_path": "data/knowledge/dian_zi_mai_chang/he-tong/【规划】243号文优化-合同内容变更优化.md",
+        "note": ""
+      }
+    ],
+    "附件": [
+      {
+        "module": "合同",
+        "dept": "业务研发部",
+        "domain": "业务研发部",
+        "kb_path": "data/knowledge/dian_zi_mai_chang/he-tong/【规划】243号文优化-合同内容变更优化.md",
+        "note": ""
+      }
+    ],
+    "需求": [
+      {
+        "module": "合同",
+        "dept": "业务研发部",
+        "domain": "业务研发部",
+        "kb_path": "data/knowledge/dian_zi_mai_chang/he-tong/【规划】243号文优化-合同内容变更优化.md",
+        "note": ""
+      }
+    ],
+    "设计": [
+      {
+        "module": "合同",
+        "dept": "业务研发部",
+        "domain": "业务研发部",
+        "kb_path": "data/knowledge/dian_zi_mai_chang/he-tong/【规划】243号文优化-合同内容变更优化.md",
+        "note": ""
+      }
+    ],
+    "条款": [
+      {
+        "module": "合同",
+        "dept": "业务研发部",
+        "domain": "业务研发部",
+        "kb_path": "data/knowledge/dian_zi_mai_chang/he-tong/【规划】243号文优化-合同内容变更优化.md",
+        "note": ""
+      }
+    ],
+    "新疆": [
+      {
+        "module": "合同",
+        "dept": "业务研发部",
+        "domain": "业务研发部",
+        "kb_path": "data/knowledge/dian_zi_mai_chang/he-tong/【规划】243号文优化-合同内容变更优化.md",
+        "note": ""
+      }
+    ],
+    "内容": [
+      {
+        "module": "合同",
+        "dept": "业务研发部",
+        "domain": "业务研发部",
+        "kb_path": "data/knowledge/dian_zi_mai_chang/he-tong/【规划】243号文优化-合同内容变更优化.md",
+        "note": ""
+      }
+    ],
+    "增加": [
+      {
+        "module": "合同",
+        "dept": "业务研发部",
+        "domain": "业务研发部",
+        "kb_path": "data/knowledge/dian_zi_mai_chang/he-tong/【规划】243号文优化-合同内容变更优化.md",
+        "note": ""
+      }
     ]
   },
   "module_map": {
@@ -27475,7 +27572,18 @@
       "dept": "业务研发部",
       "domain": "业务研发部",
       "product": "电子卖场",
-      "keywords": [],
+      "keywords": [
+        "合同",
+        "变更",
+        "公告",
+        "附件",
+        "需求",
+        "设计",
+        "条款",
+        "新疆",
+        "内容",
+        "增加"
+      ],
       "menus": []
     },
     "备案": {
@@ -34021,6 +34129,29 @@
         "参考价",
         "选品",
         "采购人"
+      ]
+    },
+    {
+      "path": "data/knowledge/dian_zi_mai_chang/he-tong/【规划】243号文优化-合同内容变更优化.md",
+      "dept": "电子卖场",
+      "dept3": "电子卖场",
+      "domain": "合同",
+      "product": "",
+      "module": "合同",
+      "date": "20260828",
+      "title": "【规划】243号文优化-合同内容变更优化",
+      "content_sample": "---\ntitle: 【规划】243号文优化-合同内容变更优化\ndept: 电子卖场\ndept3: 电子卖场\nmodule: 合同\ndate: 20260828\nkeywords: ['合同', '变更', '公告', '附件', '需求', '设计', '条款', '新疆', '内容', '增加']\nappendix: \nrelated_modules: []\nimported: 2026-08-28T10:59:14.053921\n---\n\n# 【规划】243号文优化-合同内容变更优化\n\n# 需求分析\n\n## 需求背景与描述\n\n[https://ipaas.cai-inc.com/requirements-platform-index/demand/detail/?storyId=221538](https://ipaas.cai-inc.com/requirements-platform-index/demand/detail/?storyId=221538)\n\n## 需求范围\n\n新疆、兵团、云南\n\n# 需求设计\n\n## 详细设计\n\n（1）现有功能上增加“原合同变更的条款号”，由用户自行填写，必填；“原合同变更的条款号”与现有的“变更内容”不做强制关联，最多200字\n\n![image.png](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/54Lq3Rw0K7VQn7Ed/img/d4a0b1b0-fff0-4316-a651-67481fb4f88c.png)\n\n（2）合同公告修改\n\n*   合同变更公告模板中同步增加“原合同变更的条款号”\n    \n*   合同变更公告附件增加原合同文本附件：在合同变更公告生成时，自动生成合同变更公告附件，合同变更公告附件包含合同变更附件和原合同附件；一个合同多次变更时，每次发布合同变更公告均附带本次变更的附件和原合同附件（按照区划）合同变更公告附件\n    \n*   合同变更文档模版内也要加入原合同变更条款号\n    \n\n![image.png](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/54Lq3Rw0K7VQn7Ed/img/6b1bd66e-9ae7-4735-adad-9c84d530803d.png)\n\n**注意是原合同**\n\n# Q&A\n\n| 提出人 | 提出内容 | 提出时间 | 跟进人 | 跟进结果 |\n| --- | --- | --- | --- | --- |\n|  |  |  |  |  |\n|  |  |  |  |  |\n|  |  |  |  |  |\n\n# 相关文档\n\n| 文档主题 | 链接 |\n| --- | --- |\n| 整体方案稿 |  |\n| 交互设计稿 |  |\n| 视觉设计稿 |  |\n| 技术方案 |  |\n| 测试用例 |  |\n| 验收文档 |  |\n| 交底文档 |  |",
+      "keywords": [
+        "合同",
+        "变更",
+        "公告",
+        "附件",
+        "需求",
+        "设计",
+        "条款",
+        "新疆",
+        "内容",
+        "增加"
       ]
     },
     {

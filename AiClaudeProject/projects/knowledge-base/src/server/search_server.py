@@ -1354,7 +1354,7 @@ tickets: []
             eng = get_engine()
             # Add to keyword_map
             entry = {"module": module, "dept": dept,
-                    "dept3": doc.get("dept3", ""), "domain": "", "kb_path": "", "note": "手动添加"}
+                    "domain": "", "kb_path": "", "note": "手动添加"}
             eng.keyword_map[keyword].append(entry)
             eng.save_cache()
             server_logger.info(f"KEYWORD_ADD {keyword} -> {module} ({dept})")
