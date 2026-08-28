@@ -11,7 +11,7 @@ class Settings:
     )
     DATABASE_URL_SYNC: str = os.getenv(
         "DATABASE_URL_SYNC",
-        "sqlite:///runtime/knowledge.db"
+        "postgresql+psycopg2://zcy1@localhost:5432/knowledge_base"
     )
 
     # Redis

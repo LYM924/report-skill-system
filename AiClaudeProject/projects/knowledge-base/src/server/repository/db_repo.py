@@ -250,7 +250,7 @@ class DBRepository(KnowledgeRepository):
             JOIN keywords_v2 kw ON km.keyword_id = kw.id
             LEFT JOIN modules m ON km.module_id = m.id
             LEFT JOIN departments d ON km.department_id = d.id
-            WHERE kw.is_deleted = 0 AND km.is_deleted = 0
+            WHERE kw.is_deleted = FALSE AND km.is_deleted = FALSE
         """)
         for row in rows:
             keyword_map[row["keyword"]].append({
@@ -296,7 +296,7 @@ class DBRepository(KnowledgeRepository):
         now = datetime.now().isoformat()
         # 先获取当前记录
         current = self._execute_one(
-            "SELECT keyword_id FROM keyword_mappings WHERE id = ? AND is_deleted = 0",
+            "SELECT keyword_id FROM keyword_mappings WHERE id = ? AND is_deleted = FALSE",
             (mapping_id,)
         )
         if not current:
@@ -331,7 +331,7 @@ class DBRepository(KnowledgeRepository):
         """软删除一条关键词映射"""
         now = datetime.now().isoformat()
         self._execute_write(
-            "UPDATE keyword_mappings SET is_deleted = 1, updated_at = ? WHERE id = ?",
+            "UPDATE keyword_mappings SET is_deleted = TRUE, updated_at = ? WHERE id = ?",
             (now, mapping_id)
         )
         return True
@@ -340,11 +340,11 @@ class DBRepository(KnowledgeRepository):
         """软删除关键词及其所有映射"""
         now = datetime.now().isoformat()
         self._execute_write(
-            "UPDATE keywords_v2 SET is_deleted = 1, updated_at = ? WHERE id = ?",
+            "UPDATE keywords_v2 SET is_deleted = TRUE, updated_at = ? WHERE id = ?",
             (now, keyword_id)
         )
         self._execute_write(
-            "UPDATE keyword_mappings SET is_deleted = 1, updated_at = ? WHERE keyword_id = ?",
+            "UPDATE keyword_mappings SET is_deleted = TRUE, updated_at = ? WHERE keyword_id = ?",
             (now, keyword_id)
         )
         return True

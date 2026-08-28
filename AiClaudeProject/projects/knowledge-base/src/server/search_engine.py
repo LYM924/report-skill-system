@@ -68,7 +68,7 @@ def _load_jieba_from_db():
         import json as _json
         from repository import DBRepository
         repo = DBRepository()
-        rows = repo._execute("SELECT DISTINCT tags FROM faqs WHERE is_deleted = 0")
+        rows = repo._execute("SELECT DISTINCT tags FROM faqs WHERE is_deleted = FALSE")
         for row in rows:
             try:
                 tags = _json.loads(row["tags"])
@@ -2601,11 +2601,11 @@ class SearchEngine:
                         pass
         if self.repo:
             try:
-                row = self.repo.db.execute(
-                    "SELECT MAX(update_time) as latest FROM faqs WHERE is_deleted = 0"
-                ).fetchone()
+                row = self.repo._execute_one(
+                    "SELECT MAX(update_time) as latest FROM faqs WHERE is_deleted = FALSE"
+                )
                 if row and row["latest"]:
-                    h.update(row["latest"].encode())
+                    h.update(str(row["latest"]).encode())
             except Exception:
                 pass
         return h.hexdigest()
@@ -2614,9 +2614,9 @@ class SearchEngine:
         """从 DB 获取缓存版本号（由 migration 更新）"""
         if self.repo:
             try:
-                row = self.repo.db.execute(
+                row = self.repo._execute_one(
                     "SELECT value FROM search_counter WHERE key = 'cache_version'"
-                ).fetchone()
+                )
                 return int(row["value"]) if row else 0
             except Exception:
                 return 0
