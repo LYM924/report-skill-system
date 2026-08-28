@@ -1373,6 +1373,54 @@ tickets: []
             server_logger.info(f"KEYWORD_DELETE {keyword}")
             self._json({"ok": True})
 
+        elif parsed.path == "/api/keywords/update":
+            """更新关键词（修改模块/部门/关键词名，保留关联关系）"""
+            eng = get_engine()
+            params = parse_qs(parsed.query)
+            old_keyword = params.get("old_keyword", [""])[0].strip()
+            old_module = params.get("old_module", [""])[0].strip()
+            new_keyword = params.get("new_keyword", [""])[0].strip()
+            new_module = params.get("new_module", [""])[0].strip()
+            new_dept = params.get("new_dept", [""])[0].strip()
+
+            if not old_keyword or old_keyword not in eng.keyword_map:
+                self._json({"error": "原关键词不存在"})
+                return
+
+            # 找到匹配 old_module 的条目
+            entries = eng.keyword_map[old_keyword]
+            idx = None
+            for i, e in enumerate(entries):
+                if e.get("module", "") == old_module:
+                    idx = i
+                    break
+            if idx is None:
+                self._json({"error": f"未找到关键词 '{old_keyword}' 中模块 '{old_module}' 的条目"})
+                return
+
+            # 更新条目信息
+            target_keyword = new_keyword or old_keyword
+            entries[idx] = {
+                "module": new_module or entries[idx].get("module", ""),
+                "dept": new_dept or entries[idx].get("dept", ""),
+                "domain": entries[idx].get("domain", ""),
+                "kb_path": entries[idx].get("kb_path", ""),
+                "note": entries[idx].get("note", "手动修改"),
+            }
+
+            # 如果关键词名变了，移动 key
+            if new_keyword and new_keyword != old_keyword:
+                eng.keyword_map[new_keyword] = eng.keyword_map.pop(old_keyword)
+                # 更新所有文档中引用此关键词的 frontmatter
+                for doc in eng.kb_docs:
+                    kw_list = doc.get("keywords", [])
+                    if isinstance(kw_list, list) and old_keyword in kw_list:
+                        kw_list[kw_list.index(old_keyword)] = new_keyword
+
+            eng.save_cache()
+            server_logger.info(f"KEYWORD_UPDATE {old_keyword}->{target_keyword} module={new_module} dept={new_dept}")
+            self._json({"ok": True, "keyword": target_keyword})
+
         elif parsed.path == "/api/document/update":
             """更新文档元数据（部门、产品模块、关键词、文件名），不修改正文内容"""
             params = parse_qs(parsed.query)

@@ -5,7 +5,7 @@
     "report_count": 12,
     "path_hash": "8a1732a8f022b92ec418fbd644ecf04e",
     "cache_version": 0,
-    "updated": "2026-08-28T11:49:00.481813"
+    "updated": "2026-08-28T12:31:33.816364"
   },
   "keyword_map": {
     "预算": [
@@ -22,6 +22,13 @@
         "domain": "数智财务组",
         "kb_path": "2026产品业务知识库/数智财务组/浙里报/",
         "note": "预算管理菜单"
+      },
+      {
+        "module": "预算中心",
+        "dept": "浙里报",
+        "domain": "",
+        "kb_path": "",
+        "note": "手动添加"
       }
     ],
     "项目库": [

@@ -63,11 +63,14 @@ function KeywordManager() {
 
   const handleEdit = async () => {
     if (!editKw.trim() || !editModule.trim()) return;
-    // 删除旧关键词，添加新关键词
-    if (editRecord && editRecord.keyword !== editKw.trim()) {
-      await fetch(`/api/keywords/delete?keyword=${encodeURIComponent(editRecord.keyword)}`);
-    }
-    await fetch(`/api/keywords/add?keyword=${encodeURIComponent(editKw.trim())}&module=${encodeURIComponent(editModule.trim())}&dept=${encodeURIComponent(editDept.trim())}`);
+    // 原地更新关键词，保留关联关系（文档/FAQ/报表等引用不中断）
+    await fetch(
+      `/api/keywords/update?old_keyword=${encodeURIComponent(editRecord.keyword)}` +
+      `&old_module=${encodeURIComponent(editRecord.modules?.[0] || '')}` +
+      `&new_keyword=${encodeURIComponent(editKw.trim())}` +
+      `&new_module=${encodeURIComponent(editModule.trim())}` +
+      `&new_dept=${encodeURIComponent(editDept.trim())}`
+    );
     setEditModal(false);
     loadKeywords();
   };
