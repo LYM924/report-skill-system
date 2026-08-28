@@ -98,11 +98,10 @@ def save_counter():
     if db_repo:
         for key, value in SEARCH_COUNTER.items():
             if isinstance(value, (int, float)):
-                db_repo.db.execute(
+                db_repo._execute_write(
                     "INSERT OR REPLACE INTO search_counter (key, value) VALUES (?, ?)",
                     (key, int(value))
                 )
-        db_repo.db.commit()
         return
     try:
         with open(COUNTER_FILE, "w", encoding="utf-8") as f:
@@ -136,16 +135,15 @@ def _save_keywords_to_db(kw_list, dept, module, kb_path=""):
         return
     try:
         # 查找或创建 module_id
-        row = db_repo.db.execute(
+        row = db_repo._execute_one(
             "SELECT id FROM modules WHERE name = ? LIMIT 1", (module,)
-        ).fetchone()
+        )
         module_id = row[0] if row else None
         for kw in kw_list:
-            db_repo.db.execute(
+            db_repo._execute_write(
                 "INSERT OR IGNORE INTO keywords (keyword, module_id, department, domain, kb_path) VALUES (?, ?, ?, ?, ?)",
                 (kw, module_id, dept, module, kb_path)
             )
-        db_repo.db.commit()
     except Exception:
         pass  # 关键词入库失败不影响主流程
 
@@ -355,9 +353,9 @@ class SearchHandler(SimpleHTTPRequestHandler):
                 try:
                     # 构建部门 ID→path 缓存
                     dept_paths = {}
-                    all_depts = db_repo.db.execute(
+                    all_depts = db_repo._execute(
                         "SELECT id, name, parent_id FROM departments"
-                    ).fetchall()
+                    )
                     dept_lookup = {d['id']: (d['name'], d['parent_id']) for d in all_depts}
                     def get_dept_path(name):
                         if name in dept_paths:
@@ -527,7 +525,9 @@ class SearchHandler(SimpleHTTPRequestHandler):
             total_docs = kb_count + faq_count + report_count
             self._json({
                 "totalDocs": total_docs,
+                "totalKbDocs": kb_count,
                 "faqCount": faq_count,
+                "totalReports": report_count,
                 "weekQuestions": SEARCH_COUNTER.get("week", 0),
                 "weekNew": kb_count,
                 "weekNewGrowth": 0,
@@ -560,18 +560,18 @@ class SearchHandler(SimpleHTTPRequestHandler):
                         else:
                             # 关联表无数据时，回退到名称匹配
                             dept_names = set()
-                            target = db_repo.db.execute(
+                            target = db_repo._execute(
                                 "SELECT name FROM departments WHERE id = ?", (dept_id_int,)
                             ).fetchone()
                             if target: dept_names.add(target['name'])
-                            children = db_repo.db.execute(
+                            children = db_repo._execute(
                                 "SELECT id, name FROM departments WHERE parent_id = ?", (dept_id_int,)
-                            ).fetchall()
+                            )
                             for c in children:
                                 dept_names.add(c['name'])
-                                gc = db_repo.db.execute(
+                                gc = db_repo._execute(
                                     "SELECT name FROM departments WHERE parent_id = ?", (c['id'],)
-                                ).fetchall()
+                                )
                                 for g in gc: dept_names.add(g['name'])
                             if dept_names:
                                 all_docs = [d for d in all_docs
@@ -667,7 +667,7 @@ class SearchHandler(SimpleHTTPRequestHandler):
                 dept_code = "XX"
                 if db_repo:
                     try:
-                        row = db_repo.db.execute(
+                        row = db_repo._execute(
                             "SELECT code FROM departments WHERE name = ? AND code IS NOT NULL",
                             (dept,)
                         ).fetchone()
@@ -815,7 +815,7 @@ tickets: []
                             dept_code = "XX"
                             if db_repo:
                                 try:
-                                    row = db_repo.db.execute(
+                                    row = db_repo._execute(
                                         "SELECT code FROM departments WHERE name = ? AND code IS NOT NULL",
                                         (dept,)
                                     ).fetchone()
@@ -917,8 +917,7 @@ tickets: []
             faq_id = params.get("id", [""])[0]
             if faq_id and db_repo:
                 try:
-                    db_repo.db.execute("UPDATE faqs SET view_count = view_count + 1 WHERE faq_code = ?", (faq_id,))
-                    db_repo.db.commit()
+                    db_repo._execute_write("UPDATE faqs SET view_count = view_count + 1 WHERE faq_code = ?", (faq_id,))
                 except Exception:
                     pass
             self._json({"ok": True})
@@ -1017,10 +1016,10 @@ tickets: []
             # 1. 从数据库关键词匹配（快速）
             if db_repo:
                 try:
-                    rows = db_repo.db.execute(
+                    rows = db_repo._execute(
                         "SELECT DISTINCT keyword FROM keywords WHERE keyword LIKE ? LIMIT 10",
                         (f"%{q}%",)
-                    ).fetchall()
+                    )
                     for row in rows:
                         if row["keyword"] not in suggestions:
                             suggestions.append(row["keyword"])
@@ -1056,9 +1055,9 @@ tickets: []
             options = []
             if db_repo:
                 try:
-                    rows = db_repo.db.execute(
+                    rows = db_repo._execute(
                         "SELECT id, name, level, parent_id FROM departments ORDER BY level, name"
-                    ).fetchall()
+                    )
                     # 构建 parent_id → name 查找
                     dept_names = {r['id']: r['name'] for r in rows}
                     for r in rows:
@@ -1079,12 +1078,13 @@ tickets: []
         elif parsed.path == "/api/departments/tree":
             """返回部门层级树（从数据库，含准确的文档计数和完整路径）"""
             tree = []
+            dept_map = {}
             if db_repo:
                 try:
                     # 1. 构建所有部门 ID→信息 的映射
-                    all_rows = db_repo.db.execute(
+                    all_rows = db_repo._execute(
                         "SELECT id, name, parent_id, level, code, dir_name FROM departments ORDER BY level, name"
-                    ).fetchall()
+                    )
                     dept_map = {}
                     for r in all_rows:
                         dept_map[r['id']] = {
@@ -1253,7 +1253,7 @@ tickets: []
                         query += " WHERE category = ?"
                         query_params.append(category)
                     query += " ORDER BY year DESC, week DESC"
-                    rows = db_repo.db.execute(query, query_params).fetchall()
+                    rows = db_repo._execute(query, query_params)
                     for row in rows:
                         reports.append({
                             "id": row["id"],
