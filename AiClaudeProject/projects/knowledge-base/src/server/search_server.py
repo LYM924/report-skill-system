@@ -138,7 +138,7 @@ def _save_keywords_to_db(kw_list, dept, module, kb_path=""):
         row = db_repo._execute_one(
             "SELECT id FROM modules WHERE name = ? LIMIT 1", (module,)
         )
-        module_id = row[0] if row else None
+        module_id = row['id'] if row else None
         for kw in kw_list:
             db_repo._execute_write(
                 "INSERT OR IGNORE INTO keywords (keyword, module_id, department, domain, kb_path) VALUES (?, ?, ?, ?, ?)",
@@ -560,9 +560,9 @@ class SearchHandler(SimpleHTTPRequestHandler):
                         else:
                             # 关联表无数据时，回退到名称匹配
                             dept_names = set()
-                            target = db_repo._execute(
+                            target = db_repo._execute_one(
                                 "SELECT name FROM departments WHERE id = ?", (dept_id_int,)
-                            ).fetchone()
+                            )
                             if target: dept_names.add(target['name'])
                             children = db_repo._execute(
                                 "SELECT id, name FROM departments WHERE parent_id = ?", (dept_id_int,)
@@ -667,12 +667,12 @@ class SearchHandler(SimpleHTTPRequestHandler):
                 dept_code = "XX"
                 if db_repo:
                     try:
-                        row = db_repo._execute(
+                        row = db_repo._execute_one(
                             "SELECT code FROM departments WHERE name = ? AND code IS NOT NULL",
                             (dept,)
-                        ).fetchone()
+                        )
                         if row:
-                            dept_code = row[0]
+                            dept_code = row['code']
                     except Exception:
                         pass
                 if dept_code == "XX":
@@ -815,12 +815,12 @@ tickets: []
                             dept_code = "XX"
                             if db_repo:
                                 try:
-                                    row = db_repo._execute(
+                                    row = db_repo._execute_one(
                                         "SELECT code FROM departments WHERE name = ? AND code IS NOT NULL",
                                         (dept,)
-                                    ).fetchone()
+                                    )
                                     if row:
-                                        dept_code = row[0]
+                                        dept_code = row['code']
                                 except Exception:
                                     pass
                             if dept_code == "XX":
