@@ -8,7 +8,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src/server/ ./src/server/
-COPY src/web/dist/ ./src/web/dist/
+COPY runtime/static/ ./runtime/static/
 COPY data/ ./data/
 
 CMD ["gunicorn", "src.server.main:app", \

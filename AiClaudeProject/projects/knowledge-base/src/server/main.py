@@ -60,7 +60,7 @@ app.include_router(kw_routes.router, prefix="/api")
 app.include_router(auth_router.router, prefix="/api")
 
 # 静态文件（前端）
-static_dir = HERE.parent / "web" / "dist"
+static_dir = HERE.parent.parent / "runtime" / "static"
 if static_dir.exists():
     app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")
 
