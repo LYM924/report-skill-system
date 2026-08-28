@@ -5,7 +5,7 @@
     "report_count": 12,
     "path_hash": "8f6a2f7532bbffbb5b9b5efdde6203a0",
     "cache_version": 1093501081,
-    "updated": "2026-08-28T14:59:33.727259"
+    "updated": "2026-08-28T15:09:23.665272"
   },
   "keyword_map": {
     "疫苗属性管理": [
@@ -40867,6 +40867,19 @@
         "dept_id": 916840939,
         "keyword_id": 1699,
         "mapping_id": 10214,
+        "domain": "",
+        "kb_path": "",
+        "note": "手动添加"
+      }
+    ],
+    "clean_test": [
+      {
+        "module": "供应商入驻",
+        "dept": "测试",
+        "module_id": 173,
+        "dept_id": 916840939,
+        "keyword_id": 1700,
+        "mapping_id": 10215,
         "domain": "",
         "kb_path": "",
         "note": "手动添加"

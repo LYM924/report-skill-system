@@ -190,9 +190,12 @@ class DBRepository(KnowledgeRepository):
                     if level and level != "-":
                         menus.append(level)
 
-            # 获取关键词
+            # 获取关键词（从新表）
             kw_rows = self._execute(
-                "SELECT keyword FROM keywords WHERE module_id = ?", (row["id"],)
+                """SELECT DISTINCT kw.keyword FROM keywords_v2 kw
+                   JOIN keyword_mappings km ON kw.id = km.keyword_id
+                   WHERE km.module_id = ? AND kw.is_deleted = FALSE AND km.is_deleted = FALSE""",
+                (row["id"],)
             )
             keywords = [kw["keyword"] for kw in kw_rows]
 
@@ -207,32 +210,6 @@ class DBRepository(KnowledgeRepository):
             ))
 
         return modules
-
-    # ══════ Keywords ══════
-
-    def get_all_keywords(self) -> dict[str, list[dict]]:
-        """从数据库读取关键词索引"""
-        keyword_map = defaultdict(list)
-        rows = self._execute("""
-            SELECT k.keyword, k.kb_path, k.note,
-                   m.name as module_name,
-                   d.name as dept_name,
-                   m.business_domain as domain_name
-            FROM keywords k
-            LEFT JOIN modules m ON k.module_id = m.id
-            LEFT JOIN departments d ON m.department_id = d.id
-        """)
-
-        for row in rows:
-            keyword_map[row["keyword"]].append({
-                "module": row["module_name"] or "",
-                "dept": row["dept_name"] or "",
-                "domain": row["domain_name"] or "",
-                "kb_path": row["kb_path"] or "",
-                "note": row["note"] or "",
-            })
-
-        return dict(keyword_map)
 
     # ══════ Keywords v2 (ID-based) ══════
 
@@ -348,50 +325,6 @@ class DBRepository(KnowledgeRepository):
             (now, keyword_id)
         )
         return True
-
-    def migrate_keywords_to_v2(self):
-        """将旧 keywords 表数据迁移到新表（幂等：已迁移的跳过）"""
-        # 检查是否已有数据
-        existing = self._execute_one("SELECT COUNT(*) as cnt FROM keywords_v2")
-        if existing and existing["cnt"] > 0:
-            return {"status": "skipped", "reason": f"keywords_v2 已有 {existing['cnt']} 条数据"}
-
-        old_rows = self._execute("""
-            SELECT DISTINCT k.keyword, k.module_id, k.department, k.domain, k.kb_path, k.note,
-                   m.name as module_name, m.department_id as dept_id_from_module
-            FROM keywords k
-            LEFT JOIN modules m ON k.module_id = m.id
-        """)
-        if not old_rows:
-            return {"status": "empty", "reason": "旧 keywords 表无数据"}
-
-        now = datetime.now().isoformat()
-        keyword_count = 0
-        mapping_count = 0
-
-        for row in old_rows:
-            # 写入关键词
-            self._execute_write(
-                "INSERT OR IGNORE INTO keywords_v2 (keyword, created_at, updated_at) VALUES (?, ?, ?)",
-                (row["keyword"], now, now)
-            )
-            kw = self._execute_one("SELECT id FROM keywords_v2 WHERE keyword = ?", (row["keyword"],))
-            if not kw:
-                continue
-            keyword_count += 1
-
-            # 写入映射
-            dept_id = row.get("dept_id_from_module") or 0
-            self._execute_write(
-                "INSERT INTO keyword_mappings (keyword_id, module_id, department_id, department, domain, kb_path, note, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (kw["id"], row["module_id"], dept_id,
-                 row["department"] or "", row["domain"] or "",
-                 row["kb_path"] or "", row["note"] or "", now, now)
-            )
-            mapping_count += 1
-
-        return {"status": "ok", "keywords": keyword_count, "mappings": mapping_count}
 
     # ══════ Synonyms ══════
 

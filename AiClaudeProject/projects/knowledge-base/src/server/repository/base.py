@@ -107,8 +107,8 @@ class KnowledgeRepository(ABC):
         ...
 
     @abstractmethod
-    def get_all_keywords(self) -> dict[str, list[dict]]:
-        """获取所有关键词映射: {keyword: [{module, dept, domain, ...}]}"""
+    def get_all_keywords_v2(self) -> dict[str, list[dict]]:
+        """获取所有关键词映射（ID方案）: {keyword: [{mapping_id, keyword_id, module, module_id, dept, dept_id, ...}]}"""
         ...
 
     @abstractmethod

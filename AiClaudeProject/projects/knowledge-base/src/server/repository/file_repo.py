@@ -178,10 +178,10 @@ tickets: []
             return True
         return False
 
-    # ── Keywords ──
+    # ── Keywords (v2) ──
 
-    def get_all_keywords(self) -> dict[str, list[dict]]:
-        """解析关键词索引.md，返回 {keyword: [{module, dept, ...}]}"""
+    def get_all_keywords_v2(self) -> dict[str, list[dict]]:
+        """解析关键词索引.md，返回 {keyword: [{mapping_id, keyword_id, module, dept, ...}]}"""
         keyword_map = defaultdict(list)
         if not self._keyword_index_file.exists():
             return dict(keyword_map)

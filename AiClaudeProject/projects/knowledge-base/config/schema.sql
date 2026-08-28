@@ -48,18 +48,9 @@ CREATE TABLE IF NOT EXISTS module_menus (
     level3 TEXT
 );
 
--- 关键词索引（替代 config/关键词索引.md）
-CREATE TABLE IF NOT EXISTS keywords (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    keyword TEXT NOT NULL,
-    module_id INTEGER REFERENCES modules(id),
-    department TEXT,
-    domain TEXT,
-    kb_path TEXT,
-    note TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_keywords_keyword ON keywords(keyword);
-CREATE INDEX IF NOT EXISTS idx_keywords_module ON keywords(module_id);
+-- 关键词索引 v2：关键词实体与映射分离
+-- （旧 keywords 表已废弃，由 keywords_v2 + keyword_mappings 替代）
+-- 见文件末尾 keywords_v2 和 keyword_mappings 表定义
 
 -- 同义词（替代 config/synonyms.json）
 CREATE TABLE IF NOT EXISTS synonyms (

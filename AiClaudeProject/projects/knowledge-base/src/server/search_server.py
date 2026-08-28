@@ -1025,7 +1025,7 @@ tickets: []
             if db_repo:
                 try:
                     rows = db_repo._execute(
-                        "SELECT DISTINCT keyword FROM keywords WHERE keyword LIKE ? LIMIT 10",
+                        "SELECT DISTINCT keyword FROM keywords_v2 WHERE keyword LIKE ? AND is_deleted = FALSE LIMIT 10",
                         (f"%{q}%",)
                     )
                     for row in rows:
@@ -2157,15 +2157,6 @@ def main():
     except Exception:
         print("  ⚠️  数据库不可用，使用文件存储")
         db_repo = None
-
-    # 自动迁移关键词到 v2 新表（幂等）
-    if db_repo:
-        try:
-            result = db_repo.migrate_keywords_to_v2()
-            if result.get("status") == "ok":
-                print(f"  📝 关键词已迁移到 v2: {result['keywords']} 关键词, {result['mappings']} 映射")
-        except Exception:
-            pass
 
     load_counter()
     load_sessions()
