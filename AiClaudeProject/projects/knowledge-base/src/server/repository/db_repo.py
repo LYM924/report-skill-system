@@ -25,8 +25,25 @@ DATA_DIR = PROJECT_DIR / "data"
 RUNTIME_DIR = PROJECT_DIR / "runtime"
 DB_PATH = RUNTIME_DIR / "knowledge.db"
 
+def _load_dotenv():
+    """加载 .env 文件中的环境变量"""
+    import os
+    env_file = PROJECT_DIR / ".env"
+    if not env_file.exists():
+        return
+    with open(env_file, "r") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key, val = key.strip(), val.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = val
+
 def _get_db_url():
     import os
+    _load_dotenv()
     pg_url = os.getenv("DATABASE_URL_SYNC", "")
     if pg_url and "postgresql" in pg_url:
         return pg_url
@@ -79,11 +96,41 @@ class DBRepository(KnowledgeRepository):
             return dict(row._mapping) if row else None
 
     def _execute_write(self, sql, params=None):
-        """执行写操作并提交"""
+        """执行写操作并提交，自动转换 SQLite 语法到 PostgreSQL"""
         sql, params = self._convert_params(sql, params)
+        sql = self._adapt_sql(sql)
         with self.engine.connect() as conn:
             conn.execute(text(sql), params) if params else conn.execute(text(sql))
             conn.commit()
+
+    @staticmethod
+    def _adapt_sql(sql):
+        """将 SQLite 特有语法转为 PostgreSQL 兼容语法"""
+        import re
+        # INSERT OR REPLACE → INSERT ... ON CONFLICT ... DO UPDATE
+        m = re.match(r"INSERT OR REPLACE INTO (\w+) \((.+?)\) VALUES \((.+?)\)", sql, re.IGNORECASE)
+        if m:
+            table, cols, vals = m.group(1), m.group(2), m.group(3)
+            col_list = [c.strip() for c in cols.split(",")]
+            # 用第一个非 id 列作为冲突检测列，通常需要 UNIQUE 约束
+            # 对于 search_counter: key 是 UNIQUE
+            conflict_col = col_list[0]  # 默认第一列
+            if table == "search_counter":
+                conflict_col = "key"
+            elif "keywords" in table:
+                conflict_col = "keyword"
+            set_clause = ", ".join(f"{c} = EXCLUDED.{c}" for c in col_list if c != conflict_col)
+            return f"INSERT INTO {table} ({cols}) VALUES ({vals}) ON CONFLICT ({conflict_col}) DO UPDATE SET {set_clause}"
+
+        # INSERT OR IGNORE → INSERT ... ON CONFLICT DO NOTHING
+        m = re.match(r"INSERT OR IGNORE INTO (\w+) (.+)", sql, re.IGNORECASE)
+        if m:
+            table, rest = m.group(1), m.group(2)
+            # 找到冲突列：对于 keywords_v2 是 keyword，对于 keywords 没有 UNIQUE 约束
+            conflict_col = "keyword" if "keywords" in table else "id"
+            return f"INSERT INTO {table} {rest} ON CONFLICT ({conflict_col}) DO NOTHING"
+
+        return sql
 
     @staticmethod
     def _convert_params(sql, params):
@@ -848,8 +895,9 @@ tickets: {json.dumps(faq.tickets, ensure_ascii=False) if faq.tickets else '[]'}
 
     def get_all_department_doc_counts(self) -> dict[int, int]:
         """获取所有部门的文档计数（用于部门树）"""
+        # 兼容 SQLite (document_path) 和 PostgreSQL v3 (document_id)
         rows = self._execute(
-            """SELECT department_id, COUNT(DISTINCT document_path) as cnt
+            """SELECT department_id, COUNT(*) as cnt
                FROM document_departments GROUP BY department_id"""
         )
         return {r['department_id']: r['cnt'] for r in rows}

@@ -2146,7 +2146,7 @@ def main():
     global db_repo
     try:
         db_repo = DBRepository()
-        print("  📦 数据库已连接: runtime/knowledge.db")
+        print(f"  📦 数据库已连接: {db_repo.db_url}")
         # 自动迁移 FAQ：首次启动时将文件 FAQ 导入 DB（幂等）
         try:
             imported = db_repo.bulk_import_faqs()
