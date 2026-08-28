@@ -1,0 +1,36 @@
+---
+id: FAQ-YM-PUBLIC-SERVICE-062
+title: Q：电子预防接种证申领了但是没显示
+keywords: ["便民服务"]
+module: 便民服务
+dept: 免疫规划组
+sub_module: 便民服务
+scene: 预防接种
+status: active
+version_from: ""
+created: 2026-08-24
+reviewed: 2026-08-24
+related: []
+tickets: []
+---
+
+# Q：电子预防接种证申领了但是没显示？
+
+## 问题描述
+
+Q：电子预防接种证申领了但是没显示？
+
+## 解决方法
+
+A：如果是今天申领的，是T+1的，明天可以展示
+
+## 排查要点
+
+1. 确认用户描述的问题场景是否与上述一致
+2. 按照解决方案步骤逐一排查
+3. 如问题未解决，提交技术支持工单
+
+## 关联知识
+
+- 查看 [免疫规划组知识库](../../knowledge/immunization/) 了解相关模块文档
+

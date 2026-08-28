@@ -333,7 +333,7 @@ class SearchHandler(SimpleHTTPRequestHandler):
 
 
 def main():
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
     server = ThreadingHTTPServer(("0.0.0.0", port), SearchHandler)
     print(f"\n  产品知识库搜索服务已启动")
     print(f"  打开浏览器访问: http://localhost:{port}\n")

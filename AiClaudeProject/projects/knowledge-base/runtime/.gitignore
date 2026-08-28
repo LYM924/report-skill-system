@@ -1,0 +1,8 @@
+# 运行时生成文件 - 不纳入版本控制
+*.pkl
+*.faiss
+*.jsonl
+search_counter.json
+logs/
+static/
+!cache/.gitkeep
