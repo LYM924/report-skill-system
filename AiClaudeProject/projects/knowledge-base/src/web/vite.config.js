@@ -14,8 +14,8 @@ export default defineConfig({
     },
   },
   build: {
-    // 输出到 runtime/static 目录
-    outDir: 'dist',
+    // 输出到 runtime/static 目录（服务端直接读取此目录）
+    outDir: '../../runtime/static',
     emptyOutDir: true,  // 每次构建前清空目录，避免旧版本文件堆积
   },
 })
