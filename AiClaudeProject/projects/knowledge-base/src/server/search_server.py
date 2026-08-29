@@ -130,22 +130,42 @@ def get_engine():
     return engine
 
 def _save_keywords_to_db(kw_list, dept, module, kb_path=""):
-    """将提取的关键词同步写入数据库 keywords 表"""
+    """将提取的关键词同步写入新表 keywords_v2 + keyword_mappings"""
     if not db_repo or not kw_list:
         return
     try:
-        # 查找或创建 module_id
+        # 查找 module_id 和 dept_id
         row = db_repo._execute_one(
-            "SELECT id FROM modules WHERE name = ? LIMIT 1", (module,)
+            "SELECT id, department_id FROM modules WHERE name = ? LIMIT 1", (module,)
         )
         module_id = row['id'] if row else None
-        for kw in kw_list:
-            db_repo._execute_write(
-                "INSERT OR IGNORE INTO keywords (keyword, module_id, department, domain, kb_path) VALUES (?, ?, ?, ?, ?)",
-                (kw, module_id, dept, module, kb_path)
+        # department_id 有外键约束，未知时必须用 NULL 而非 0
+        dept_id = row['department_id'] if row and row['department_id'] else None
+        if dept_id is None and dept:
+            drow = db_repo._execute_one(
+                "SELECT id FROM departments WHERE name = ? LIMIT 1", (dept,)
             )
-    except Exception:
-        pass  # 关键词入库失败不影响主流程
+            dept_id = drow['id'] if drow else None
+        now = __import__('datetime').datetime.now().isoformat()
+        for kw in kw_list:
+            if not kw or not kw.strip():
+                continue
+            kw = kw.strip()
+            # 写入关键词实体
+            db_repo._execute_write(
+                "INSERT INTO keywords_v2 (keyword, created_at, updated_at) VALUES (?, ?, ?) "
+                "ON CONFLICT (keyword) DO UPDATE SET is_deleted = FALSE, updated_at = ?",
+                (kw, now, now, now)
+            )
+            kw_row = db_repo._execute_one("SELECT id FROM keywords_v2 WHERE keyword = ?", (kw,))
+            if kw_row:
+                db_repo._execute_write(
+                    "INSERT INTO keyword_mappings (keyword_id, module_id, department_id, department, kb_path, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (kw_row['id'], module_id, dept_id, dept, kb_path, now, now)
+                )
+    except Exception as e:
+        server_logger.warning(f"关键词入库失败 dept={dept} module={module}: {e}")  # 关键词入库失败不影响主流程
 
 def rebuild_engine():
     """重建引擎（FAQ增删后调用，清除所有缓存避免脏数据）"""

@@ -246,10 +246,14 @@ class DBRepository(KnowledgeRepository):
     def add_keyword(self, keyword: str, module_id: int, dept_id: int, dept: str = "") -> dict:
         """新增关键词+映射，返回 {keyword_id, mapping_id}"""
         now = datetime.now().isoformat()
-        # INSERT OR IGNORE 关键词
+        # 外键字段 0 → NULL，避免违反外键约束
+        module_id = module_id or None
+        dept_id = dept_id or None
+        # 关键词已存在（含软删除）时复活并刷新时间
         self._execute_write(
-            "INSERT OR IGNORE INTO keywords_v2 (keyword, created_at, updated_at) VALUES (?, ?, ?)",
-            (keyword, now, now)
+            "INSERT INTO keywords_v2 (keyword, created_at, updated_at) VALUES (?, ?, ?) "
+            "ON CONFLICT (keyword) DO UPDATE SET is_deleted = FALSE, updated_at = ?",
+            (keyword, now, now, now)
         )
         row = self._execute_one("SELECT id FROM keywords_v2 WHERE keyword = ?", (keyword,))
         keyword_id = row["id"] if row else None

@@ -5,7 +5,7 @@
     "report_count": 12,
     "path_hash": "8f6a2f7532bbffbb5b9b5efdde6203a0",
     "cache_version": 1093501081,
-    "updated": "2026-08-28T15:09:23.665272"
+    "updated": "2026-08-29T14:44:20.196093"
   },
   "keyword_map": {
     "疫苗属性管理": [
@@ -3650,10 +3650,10 @@
         "module": "商品助手",
         "module_id": 83,
         "dept": "电子卖场",
-        "dept_id": 0,
+        "dept_id": 916995712,
         "domain": "反拍",
         "kb_path": "data/faq/dian-zi-mai-chang/fan-pai/反拍是什么.md",
-        "note": ""
+        "note": "手动修改"
       },
       {
         "mapping_id": 7581,
@@ -17550,11 +17550,11 @@
         "keyword_id": 183,
         "module": "",
         "module_id": 0,
-        "dept": "数智财务组",
-        "dept_id": 0,
+        "dept": "浙里报",
+        "dept_id": 1062036871,
         "domain": "浙里报",
         "kb_path": "2026产品业务知识库/数智财务组/浙里报/",
-        "note": "预算管理菜单"
+        "note": "手动修改"
       },
       {
         "mapping_id": 8260,
