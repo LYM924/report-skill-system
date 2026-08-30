@@ -31,6 +31,8 @@ import ResultCard from './ResultCard';
 import FaqBrowser from './FaqBrowser';
 import ReportBrowser from './ReportBrowser';
 import DeptBrowser from './DeptBrowser';
+import SettingsCenter from './SettingsCenter';
+import UserManager from './UserManager';
 
 // 非首屏 Tab 组件懒加载，减少首屏 JS bundle 体积
 const StatsDashboard = React.lazy(() => import('./StatsDashboard'));
@@ -279,6 +281,10 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
   if (topTab === 'stats') return <Suspense fallback={<TabFallback />}><StatsDashboard isDark={isDark} /></Suspense>;
   if (topTab === 'ai') return <Suspense fallback={<TabFallback />}><ChatMode isDark={isDark} /></Suspense>;
   if (topTab === 'manage') return <Suspense fallback={<TabFallback />}><ManagePanel isDark={isDark} /></Suspense>;
+
+  // 系统管理页（左侧菜单 系统管理 → 配置中心/用户管理）
+  if (selectedNav === 'settings-ai') return <SettingsCenter isDark={isDark} />;
+  if (selectedNav === 'settings-users') return <UserManager isDark={isDark} />;
 
   // FAQ 部门浏览（左侧 FAQ库 点击部门触发）
   if (selectedNav && selectedNav.startsWith('faq-dept-')) {

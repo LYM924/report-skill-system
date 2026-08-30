@@ -127,12 +127,14 @@ async def search(
         "snippet": (ans.get("summary") or "")[:200],
     }
 
-    # 5. Claude AI 总结会话
-    if claude_service.has_credentials():
+    # 5. AI 总结会话（按当前用户的 AI 配置判断可用性）
+    from service import ai_config as ai_cfg
+    if ai_cfg.resolve_ai_config(user or ""):
         try:
             prompt = eng.build_rag_prompt(q, paged)
             sid = uuid.uuid4().hex[:12]
-            SESSION_STORE[sid] = {"prompt": prompt, "query": q, "created": time.time()}
+            SESSION_STORE[sid] = {"prompt": prompt, "query": q, "created": time.time(),
+                                  "username": user or ""}
             _prune_sessions()
             result["claude_stream_url"] = f"/api/claude-stream?sid={sid}"
         except Exception:
@@ -158,11 +160,19 @@ async def claude_stream(
         DBRepository().increment_counter("ai_summaries")
     except Exception:
         pass
+    # 按会话所属用户的 AI 配置取模型/密钥（用户配置优先，服务器环境回退）
+    from service import ai_config as ai_cfg
+    cfg = ai_cfg.resolve_ai_config(session.get("username", ""))
+    if not cfg:
+        return {"error": "未配置 AI 服务（请在 系统管理→配置中心 保存你的 AI 配置）"}
     prompt = session.get("prompt", {})
     system = prompt.get("system", "")
     messages = prompt.get("messages", [{"role": "user", "content": session.get("query", "")}])
     return StreamingResponse(
-        claude_service.sse_generate(system=system, messages=messages, deep=bool(deep)),
+        claude_service.sse_generate(
+            system=system, messages=messages, deep=bool(deep),
+            model=cfg.get("model"), base_url=cfg.get("base_url"), auth_token=cfg.get("api_key"),
+            max_tokens=cfg.get("max_tokens", 4096)),
         media_type="text/event-stream",
     )
 
@@ -229,40 +239,56 @@ async def feedback(
     return {"ok": True}
 
 
-async def _chat_impl(message: str):
-    if not claude_service.has_credentials():
-        return {"error": "AI 服务未配置（缺少 ANTHROPIC_AUTH_TOKEN）"}
+def _user_ai_cfg(user: str):
+    """按用户名解析 AI 配置；无配置返回 None"""
+    from service import ai_config as ai_cfg
+    return ai_cfg.resolve_ai_config(user or "")
+
+
+def _sse_with_cfg(cfg: dict, system: str, messages: list):
+    """用解析出的配置发起 SSE 流"""
+    return StreamingResponse(
+        claude_service.sse_generate(
+            system=system, messages=messages,
+            model=cfg.get("model"), base_url=cfg.get("base_url"), auth_token=cfg.get("api_key"),
+            max_tokens=cfg.get("max_tokens", 4096)),
+        media_type="text/event-stream",
+    )
+
+
+async def _chat_impl(message: str, user: str):
+    cfg = _user_ai_cfg(user)
+    if not cfg:
+        return {"error": "未配置 AI 服务（请在 系统管理→配置中心 保存你的 AI 配置）"}
     try:
         from repository import DBRepository
         DBRepository().increment_counter("ai_summaries")
     except Exception:
         pass
     system = "你是企业内部知识库 AI 助手，请用中文简洁专业地回答用户问题。"
-    return StreamingResponse(
-        claude_service.sse_generate(system=system, messages=[{"role": "user", "content": message}]),
-        media_type="text/event-stream",
-    )
+    return _sse_with_cfg(cfg, system, [{"role": "user", "content": message}])
 
 
 @router.get("/chat")
 async def chat(message: str = Query(""), user: str = Depends(verify_token)):
     """纯 AI 聊天（SSE，不检索知识库）"""
-    return await _chat_impl(message)
+    return await _chat_impl(message, user)
 
 
 @router.post("/chat")
 async def chat_post(body: MessageBody, user: str = Depends(verify_token)):
     """纯 AI 聊天（SSE，POST JSON body）"""
-    return await _chat_impl(body.message)
+    return await _chat_impl(body.message, user)
 
 
-async def _rag_impl(message: str):
+async def _rag_impl(message: str, user: str):
     if main.search_engine is None:
         return {"error": "搜索引擎未就绪"}
     if not message:
         return {"error": "message 必填"}
-    if not claude_service.has_credentials():
-        return {"error": "AI 服务未配置（缺少 ANTHROPIC_AUTH_TOKEN）"}
+    cfg = _user_ai_cfg(user)
+    if not cfg:
+        return {"error": "未配置 AI 服务（请在 系统管理→配置中心 保存你的 AI 配置）"}
     try:
         from repository import DBRepository
         DBRepository().increment_counter("ai_summaries")
@@ -274,19 +300,16 @@ async def _rag_impl(message: str):
         prompt = main.search_engine.build_rag_prompt(message, results.get("results", []))
     except Exception:
         prompt = {"system": "", "messages": [{"role": "user", "content": message}], "sources": []}
-    return StreamingResponse(
-        claude_service.sse_generate(system=prompt.get("system", ""), messages=prompt.get("messages", [])),
-        media_type="text/event-stream",
-    )
+    return _sse_with_cfg(cfg, prompt.get("system", ""), prompt.get("messages", []))
 
 
 @router.get("/rag")
 async def rag(message: str = Query(""), user: str = Depends(verify_token)):
     """RAG 智能问答（SSE，query 参数）"""
-    return await _rag_impl(message)
+    return await _rag_impl(message, user)
 
 
 @router.post("/rag")
 async def rag_post(body: MessageBody, user: str = Depends(verify_token)):
     """RAG 智能问答（SSE，POST JSON body）"""
-    return await _rag_impl(body.message)
+    return await _rag_impl(body.message, user)

@@ -39,6 +39,17 @@ function App() {
 
   // 顶部导航 Tab
   const [topTab, setTopTab] = useState('search');
+  const [userRole, setUserRole] = useState('user');  // 当前登录用户角色（admin 可见用户管理）
+
+  // 获取当前用户角色（登录后 / 登录状态变化时刷新）
+  useEffect(() => {
+    authFetch('/api/auth/me').then(r => {
+      if (r.ok) return r.json();
+      return null;
+    }).then(d => {
+      if (d?.role) setUserRole(d.role);
+    }).catch(() => {});
+  }, []);
 
   // 搜索状态
   const [searchResults, setSearchResults] = useState(null);
@@ -126,6 +137,10 @@ function App() {
   // 左侧栏点击 → 更新筛选范围，并切回搜索Tab
   const handleNavChange = (key) => {
     setSelectedNav(key);
+    if (key.startsWith('settings-')) {
+      setTopTab('manage');  // 系统管理页归属知识管理 Tab
+      return;
+    }
     setTopTab('search');  // 切换到文档搜索Tab，确保中间面板响应用户点击
 
     // 映射到搜索范围
@@ -208,6 +223,7 @@ function App() {
               onNavChange={handleNavChange}
               collapsed={sidebarCollapsed}
               onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+              userRole={userRole}
             />
           </Sider>
 

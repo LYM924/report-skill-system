@@ -47,6 +47,16 @@ async def lifespan(app: FastAPI):
             logging.getLogger("main").info("Schema 契约校验通过")
     except Exception as e:
         logging.getLogger("main").warning(f"Schema 校验不可用: {e}")
+    # 播种环境管理员账号（users 表不存在时自动建表，再确保 admin 存在）
+    try:
+        from service import ai_config
+        from auth import get_admin_credentials
+        admin_user, admin_pass = get_admin_credentials()
+        if not ai_config.get_user(admin_user):
+            ai_config.create_user(admin_user, admin_pass, "admin")
+            logging.getLogger("main").info(f"已播种管理员账号: {admin_user}")
+    except Exception as e:
+        logging.getLogger("main").warning(f"管理员账号播种失败: {e}")
     # 加载搜索引擎（启动即装载，避免首个请求冷启动缺加载）
     from search_engine import SearchEngine
     search_engine = SearchEngine()
@@ -70,7 +80,7 @@ app.add_middleware(
 )
 
 # 注册路由
-from routes import search, documents, faq, dashboard, keywords as kw_routes, auth_router, health
+from routes import search, documents, faq, dashboard, keywords as kw_routes, auth_router, health, config_center
 
 app.include_router(search.router, prefix="/api")
 app.include_router(documents.router, prefix="/api")
@@ -79,6 +89,7 @@ app.include_router(dashboard.router, prefix="/api")
 app.include_router(kw_routes.router, prefix="/api")
 app.include_router(auth_router.router, prefix="/api")
 app.include_router(health.router, prefix="/api")
+app.include_router(config_center.router, prefix="/api")
 
 # 静态文件（前端构建产物 runtime/static）
 static_dir = HERE.parent.parent / "runtime" / "static"

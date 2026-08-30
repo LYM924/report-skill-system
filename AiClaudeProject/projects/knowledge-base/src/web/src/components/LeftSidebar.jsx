@@ -15,6 +15,7 @@ import {
   FolderOpenOutlined, AppstoreOutlined, ApartmentOutlined,
   FileTextOutlined, TeamOutlined, QuestionCircleOutlined,
   MenuFoldOutlined, MenuUnfoldOutlined, BarChartOutlined,
+  SettingOutlined, ApiOutlined, UserOutlined,
 } from '@ant-design/icons';
 
 /** 构建产品模块子菜单 */
@@ -123,7 +124,7 @@ function buildFaqChildren(faqs) {
   }));
 }
 
-function LeftSidebar({ selectedNav, onNavChange, collapsed, onToggleCollapse }) {
+function LeftSidebar({ selectedNav, onNavChange, collapsed, onToggleCollapse, userRole }) {
   const [menuData, setMenuData] = useState(null);
   const [deptTree, setDeptTree] = useState([]);
   const [faqs, setFaqs] = useState([]);
@@ -176,8 +177,20 @@ function LeftSidebar({ selectedNav, onNavChange, collapsed, onToggleCollapse }) 
         icon: <QuestionCircleOutlined />,
         children: buildFaqChildren(faqs),
       },
+      { type: 'divider' },
+      {
+        key: 'system-admin',
+        label: '系统管理',
+        icon: <SettingOutlined />,
+        children: [
+          { key: 'settings-ai', label: '配置中心', icon: <ApiOutlined /> },
+          ...(userRole === 'admin'
+            ? [{ key: 'settings-users', label: '用户管理', icon: <UserOutlined /> }]
+            : []),
+        ],
+      },
     ];
-  }, [menuData, faqs, deptTree]);
+  }, [menuData, faqs, deptTree, userRole]);
 
   const handleClick = ({ key }) => {
     onNavChange(key);

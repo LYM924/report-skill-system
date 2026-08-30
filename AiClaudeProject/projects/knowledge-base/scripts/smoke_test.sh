@@ -89,6 +89,12 @@ echo "-- 关键词类 --"
 req "GET /api/keywords" GET "/api/keywords?page_size=5" \
   -- "import sys,json;d=json.load(sys.stdin);assert isinstance(d,dict) and 'keywords' in d,d"
 
+echo "-- 系统管理类 --"
+req "GET /api/auth/me" GET "/api/auth/me" \
+  -- "import sys,json;d=json.load(sys.stdin);assert isinstance(d,dict) and 'role' in d,d"
+req "GET /api/config/ai" GET "/api/config/ai" \
+  -- "import sys,json;d=json.load(sys.stdin);assert isinstance(d,dict) and 'model' in d,d"
+
 if [ "$WRITE_MODE" = "1" ]; then
   echo "-- 写测试（一次性数据）--"
   KW="smoke_$(date +%s)"

@@ -38,14 +38,27 @@ def has_credentials() -> bool:
     return bool(os.environ.get("ANTHROPIC_AUTH_TOKEN", "") or os.environ.get("ANTHROPIC_API_KEY", ""))
 
 
-async def sse_generate(system: str = "", messages: list = None, max_tokens: int = 4096, deep: bool = False):
-    """异步生成器：输出 SSE data: 行（text / complete / error / [DONE]）"""
+async def sse_generate(system: str = "", messages: list = None, max_tokens: int = 4096, deep: bool = False,
+                       model: str = None, base_url: str = None, auth_token: str = None, api_key: str = None):
+    """异步生成器：输出 SSE data: 行（text / complete / error / [DONE]）
+
+    显式传入 model/base_url/auth_token/api_key 时优先使用（每用户配置）；
+    未传时回退服务器环境变量。
+    """
     if deep:
         system = (system or "") + "\n\n【深度分析模式】请对上述问题做更深入全面的分析，涵盖背景、根因、影响范围与建议。"
+    kwargs = {}
+    if base_url:
+        kwargs["base_url"] = base_url
+    if auth_token:
+        kwargs["auth_token"] = auth_token
+    else:
+        kwargs["api_key"] = api_key or _client_kwargs().get("api_key", "")
+    model = model or default_model()
     try:
-        client = anthropic.Anthropic(**_client_kwargs())
+        client = anthropic.Anthropic(**kwargs)
         with client.messages.stream(
-            model=default_model(), max_tokens=max_tokens, system=system, messages=messages or [],
+            model=model, max_tokens=max_tokens, system=system, messages=messages or [],
         ) as stream:
             for text in stream.text_stream:
                 yield f"data: {json.dumps({'text': text})}\n\n"
