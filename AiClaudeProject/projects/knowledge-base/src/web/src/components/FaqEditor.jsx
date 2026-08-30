@@ -4,6 +4,7 @@
  * 展示所有 FAQ 列表，支持搜索和编辑 FAQ 的标题、关键词、部门和内容。
  */
 import React, { useState, useEffect, useRef } from 'react';
+import { authFetch } from '../api';
 import { Typography, Card, Table, Tag, Button, Input, Modal, Select, message, Upload, Space } from 'antd';
 import { EditOutlined, PlusOutlined, UploadOutlined, DeleteOutlined } from '@ant-design/icons';
 import ModuleSelect from './ModuleSelect';
@@ -30,7 +31,7 @@ function FaqEditor({ isDark }) {
 
   const loadFaqs = () => {
     setLoading(true);
-    fetch('/api/faq')
+    authFetch('/api/faq')
       .then(r => r.json())
       .then(data => { setFaqs(data?.faqs || []); setLoading(false); })
       .catch(() => setLoading(false));
@@ -53,7 +54,7 @@ function FaqEditor({ isDark }) {
     setEditContent('加载中...');
     setEditModal(true);
     try {
-      const resp = await fetch(`/api/faq?id=${faq.id}`);
+      const resp = await authFetch(`/api/faq?id=${faq.id}`);
       const data = await resp.json();
       if (data && !data.error) {
         setEditContent(data.content || '');
@@ -89,7 +90,7 @@ function FaqEditor({ isDark }) {
         content: editContent,
         status: 'active',
       });
-      const resp = await fetch(`/api/faq/save?${params.toString()}`);
+      const resp = await authFetch(`/api/faq/save?${params.toString()}`);
       const data = await resp.json();
       if (!resp.ok || data.error) throw new Error(data.error || '保存失败');
       message.success('FAQ 已保存');
@@ -107,7 +108,7 @@ function FaqEditor({ isDark }) {
     const formData = new FormData();
     formData.append('file', file);
     try {
-      const resp = await fetch('/api/faq/import', { method: 'POST', body: formData });
+      const resp = await authFetch('/api/faq/import', { method: 'POST', body: formData });
       const data = await resp.json();
       if (data.error) { message.error(data.error); }
       else { message.success(`导入完成: 成功 ${data.success || 0} 条, 失败 ${data.fail || 0} 条`); }
@@ -129,7 +130,7 @@ function FaqEditor({ isDark }) {
       cancelText: '取消',
       onOk: async () => {
         try {
-          const resp = await fetch(`/api/faq/delete?path=${encodeURIComponent(record.path || '')}`);
+          const resp = await authFetch(`/api/faq/delete?path=${encodeURIComponent(record.path || '')}`);
           const data = await resp.json();
           if (data.error) { message.error(data.error); }
           else { message.success('已删除'); loadFaqs(); }

@@ -7,6 +7,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { authFetch } from '../api';
 import { Typography, Empty, Tag, Avatar, Row, Col, Button, Spin, Divider, Input, Select, message } from 'antd';
 import {
   QuestionCircleOutlined, FileTextOutlined, ClockCircleOutlined,
@@ -105,6 +106,7 @@ function RightPanel({ selectedDoc, onClearDoc, isDark }) {
     setSavingFaq(true);
     try {
       const params = new URLSearchParams({
+        id: selectedFaq.id || '',
         title: editTitle,
         keywords: editKeywords,
         dept: editDept,
@@ -113,7 +115,7 @@ function RightPanel({ selectedDoc, onClearDoc, isDark }) {
         content: editContent,
         status: 'active',
       });
-      const resp = await fetch(`/api/faq/save?${params.toString()}`);
+      const resp = await authFetch(`/api/faq/save?${params.toString()}`);
       const data = await resp.json();
       if (!resp.ok || data.error) {
         throw new Error(data.error || `保存失败 (HTTP ${resp.status})`);
@@ -212,7 +214,7 @@ function RightPanel({ selectedDoc, onClearDoc, isDark }) {
         content: selectedDoc.content || selectedDoc.snippets?.join('\n') || '',
       };
       // 异步加载完整FAQ内容，加载后清除 selectedDoc 让 FAQ 视图渲染
-      fetch(`/api/faq?id=${faqId}`).then(r => r.json()).then(data => {
+      authFetch(`/api/faq?id=${faqId}`).then(r => r.json()).then(data => {
         if (data && !data.error) {
           setSelectedFaq({ ...faqInfo, ...data, content: data.content || faqInfo.content });
         } else {

@@ -9,6 +9,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { authFetch } from '../api';
 import { Menu, Button, Spin } from 'antd';
 import {
   FolderOpenOutlined, AppstoreOutlined, ApartmentOutlined,
@@ -130,9 +131,9 @@ function LeftSidebar({ selectedNav, onNavChange, collapsed, onToggleCollapse }) 
 
   useEffect(() => {
     Promise.all([
-      fetch('/api/menu').then(r => r.json()),
-      fetch('/api/faq').then(r => r.json()),
-      fetch('/api/departments/tree').then(r => r.json()).catch(() => ({ tree: [] })),
+      authFetch('/api/menu').then(r => r.json()),
+      authFetch('/api/faq').then(r => r.json()),
+      authFetch('/api/departments/tree').then(r => r.json()).catch(() => ({ tree: [] })),
     ]).then(([menu, faqData, deptData]) => {
       setMenuData(menu);
       setFaqs(faqData?.faqs || []);

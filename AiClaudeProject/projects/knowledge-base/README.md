@@ -1,111 +1,62 @@
 # 产品知识库系统 (Knowledge Base System)
 
-产品业务知识管理 + 智能检索系统。
+产品业务知识管理 + 智能检索系统（端口 8000）。
 
-## 目录结构
+## 架构
 
 ```
-knowledge-base/
-├── README.md
-├── SKILL.md                        # Claude Code Skill 入口
-├── Product_Knowledge_Base.md       # 知识库主文档
-├── FAQ知识库/                  # 🆕 FAQ 知识沉淀
-│   ├── INDEX.md               # 摘要索引
-│   ├── TEMPLATE.md            # FAQ 标准模板
-│   ├── 数智财务组/            # 按业务组分级
-│   └── export/                # 静态 HTML 导出
-├── scripts/                   # 🆕 维护脚本
-│   ├── faq_audit.py           # FAQ 审计脚本
-│   ├── faq_export.py          # FAQ 静态页面导出
-│   ├── faq_ticket_link.py     # FAQ ↔ 工单关联管理
-│   └── faq_generate.py        # FAQ 自动生成
-│   ├── 数智财务组/
-│   │   ├── 浙里报/
-│   │   ├── 孵化业务/
-│   │   ├── 徽报账/
-│   │   └── 数智财务组-直属/
-│   ├── 免疫规划组/
-│   ├── 电子档案组/
-│   └── 数字化支撑组/
-├── raw-docs/                       # 原始参考文档
-│   ├── 数智财务组/
-│   ├── 免疫规划组/
-│   ├── 电子档案组/
-│   └── 数字化支撑组/
-└── shared-modules/                 # 共享模块
-    ├── SKILL.md
-    ├── 关键词库/                   # 关键词索引+搜索缓存
-    ├── 智能检索工具/               # BM25 + FAISS 搜索引擎
-    ├── 数智财务组/                 # 各业务组模块定义
-    ├── 免疫规划组/
-    ├── 电子档案组/
-    ├── 数字化支撑组/
-    ├── 双向链接枢纽.md
-    └── 各部门产品业务模块.xlsx
+React 前端 (src/web, Vite 构建到 runtime/static)
+    ↓ HTTP /api/*
+FastAPI 后端 (src/server/main.py + routes/, uvicorn)
+    ↓
+SearchEngine 内存搜索引擎（jieba 分词 + BM25 + FAISS 向量 + 关键词路由 + FAQ 缓存）
+    ↓
+DBRepository（PostgreSQL 主数据源） + 文件系统（data/*.md 内容权威）
 ```
 
-## 共享模块说明
+- **后端唯一实现**：FastAPI（`src/server/main.py`）。旧实现 `search_server.py` 已归档至 `src/server/legacy/`，不再使用。
+- **数据库**：PostgreSQL `knowledge_base`（连接串见 `.env` 的 `DATABASE_URL_SYNC`）；PG 不可用时回退 SQLite `runtime/knowledge.db`。
+- **Schema 管理**：统一由 `config/migrations/*.sql` 演进（幂等脚本，psql 应用），禁止手工双份 schema。
+- **鉴权**：JWT（`POST /api/auth/login`，账号 `ADMIN_USER`/`ADMIN_PASS` 见 `.env`），除登录与静态资源外全部接口需 `Authorization: Bearer <token>`。
 
-智能检索工具支持：
-- BM25 关键词检索
-- FAISS 向量语义搜索
-- 关键词索引 + 同义词映射
-- **🆕 FAQ 知识库浏览与搜索**（集成在 Web 界面中）
-
-### 启动 Web 服务
+## 启动
 
 ```bash
-cd shared-modules/智能检索工具/
-pip install -r requirements.txt
-python3 search_server.py
+# 后端（8000）
+./start.sh
+# 或：cd src/server && python3 -m uvicorn main:app --host 0.0.0.0 --port 8000
+
+# 前端（改动后需重新构建）
+cd src/web && npx vite build   # 输出到 runtime/static
 ```
 
-启动后访问 `http://localhost:8899`，即可使用：
-- 🔍 **智能搜索**：输入关键词搜索产品知识库
-- 📚 **FAQ 浏览**：点击 "FAQ 浏览" 按钮查看所有 FAQ，支持按部门筛选、点击展开详情
-
-## 维护脚本
-
-### FAQ 审计 (`scripts/faq_audit.py`)
-
-扫描 FAQ 知识库，检查 frontmatter 完整性、过期内容、断链等。
+## 冒烟测试（每改必跑）
 
 ```bash
-python3 scripts/faq_audit.py          # 审计报告
-python3 scripts/faq_audit.py --fix    # 审计 + 自动更新 INDEX.md
-python3 scripts/faq_audit.py --json   # JSON 格式输出
+TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin123"}' | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])")
+AUTH_TOKEN="$TOKEN" ./scripts/smoke_test.sh localhost:8000 --write
 ```
 
-### FAQ 静态导出 (`scripts/faq_export.py`)
+## 健康检查
 
-将 FAQ 知识库导出为单文件 HTML，可直接浏览器打开或部署到静态服务器。
+`GET /api/health`（需 token）：数据源类型、引擎状态、Schema 契约校验（列存在性/唯一索引）、写失败计数、行数概要。
 
-```bash
-python3 scripts/faq_export.py              # 导出到 FAQ知识库/export/
-python3 scripts/faq_export.py --serve      # 导出 + 启动本地预览
-python3 scripts/faq_export.py --output /path/to/output/  # 指定输出目录
-```
+## 数据流约定
 
-### FAQ ↔ 工单关联 (`scripts/faq_ticket_link.py`)
+| 数据 | 存储位置 | 说明 |
+|---|---|---|
+| 知识文档/FAQ/报表内容 | `data/**/*.md` | 内容权威；DB 存索引与元数据 |
+| 文档元数据 | `documents` 表 | 启动时装载进内存搜索引擎 |
+| FAQ 元数据 | `faqs` 表 | 保存=写文件+写表（双写一致）；删除=物理删文件+软删表 |
+| 关键词 | `keywords_v2` + `keyword_mappings` | 双表方案；软删除+复活式 upsert；部分唯一索引防重复 |
+| 搜索日志 | `search_logs` 表 | /api/search 写入（query/纠错词/耗时/是否命中答案/UA/IP哈希） |
+| 反馈 | `feedback` + `search_counter` | 有用/无用计数 → 满意度 |
+| 索引缓存 | `runtime/cache/*` | BM25/向量/FAQ 缓存；FAQ 变更后 BM25 同步重建、向量后台重建 |
 
-管理 FAQ 与工单的双向关联，支持从工单分析文档匹配 FAQ。
+## 已知设计决策
 
-```bash
-python3 scripts/faq_ticket_link.py                    # 查看关联总览
-python3 scripts/faq_ticket_link.py --report           # 详细关联报告
-python3 scripts/faq_ticket_link.py --orphan-faqs      # 查看无工单来源的 FAQ
-python3 scripts/faq_ticket_link.py --scan-tickets     # 扫描工单文档匹配 FAQ
-python3 scripts/faq_ticket_link.py --link FAQ-SZ-ZLB-001 202606301704475767058  # 添加工单关联
-```
-
-### FAQ 自动生成 (`scripts/faq_generate.py`)
-
-从知识库文档和工单分析中提取 FAQ 种子，生成草稿待人工审核。
-
-```bash
-python3 scripts/faq_generate.py                    # 分析并输出建议
-python3 scripts/faq_generate.py --drafts           # 生成草稿到 _drafts/
-python3 scripts/faq_generate.py --source tickets   # 仅从工单分析生成
-python3 scripts/faq_generate.py --source kb        # 仅从知识库生成
-python3 scripts/faq_generate.py --drafts --apply   # 生成草稿并自动入库
-```
+- FAQ 变更后向量索引由后台线程全量重建（`/api/rebuild` 或保存/删除触发），期间向量召回可能滞后。
+- `document_departments` 以 `document_path` 为关联键（线上规范），`document_id` 为迁移遗留列暂不使用。
+- 关键词映射 `module_id` 可为 NULL（部门级关键词），NULL 不参与唯一约束（PG 语义）。

@@ -6,30 +6,36 @@
  */
 import React, { useState, useEffect } from 'react';
 import { Typography, Card, Row, Col } from 'antd';
-import { getHotwords } from '../api';
+import { getHotwords, getStats } from '../api';
 
 const { Text } = Typography;
 
 /** 问答统计面板 */
 function StatsDashboard({ isDark }) {
   const [hotwords, setHotwords] = useState([]);
+  const [stats, setStats] = useState(null);
 
   useEffect(() => {
     getHotwords().then(data => {
       if (data?.hotwords) setHotwords(data.hotwords);
     });
+    getStats().then(data => {
+      if (data) setStats(data);
+    });
   }, []);
+
+  const cards = [
+    { label: '今日搜索', value: stats?.today_questions ?? 0, color: '#0D9488' },
+    { label: 'FAQ 命中', value: stats?.faq_hits ?? 0, color: '#2563EB' },
+    { label: 'AI 总结', value: stats?.ai_summaries ?? 0, color: '#D97706' },
+    { label: '满意度', value: stats?.satisfaction != null ? `${stats.satisfaction}%` : '—', color: '#7C3AED' },
+  ];
 
   return (
     <div style={{ width: '100%' }}>
       <Text strong style={{ fontSize: 20, display: 'block', marginBottom: 20, color: isDark ? '#e5e5e5' : '#1e293b' }}>问答统计</Text>
       <Row gutter={[16, 16]}>
-        {[
-          { label: '今日搜索', value: 128, color: '#0D9488' },
-          { label: 'FAQ 命中', value: 86, color: '#2563EB' },
-          { label: 'AI 总结', value: 42, color: '#D97706' },
-          { label: '满意度', value: '94%', color: '#7C3AED' },
-        ].map((item, i) => (
+        {cards.map((item, i) => (
           <Col span={6} key={i}>
             <Card style={{ borderRadius: 12, border: '1px solid #e2e8f0', textAlign: 'center' }}>
               <Text type="secondary" style={{ fontSize: 13 }}>{item.label}</Text>

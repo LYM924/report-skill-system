@@ -6,6 +6,7 @@
  * 卡片背景：#fafbfc，分割线：浅灰细线，圆角：10-12px
  */
 import React, { useState, useRef } from 'react';
+import { authFetch } from '../api';
 import { Typography, Input, Button, Avatar, Tag } from 'antd';
 import { RobotOutlined, LoadingOutlined, SendOutlined, UserOutlined, ThunderboltOutlined, BulbOutlined, FileTextOutlined, LinkOutlined } from '@ant-design/icons';
 
@@ -68,7 +69,7 @@ function ChatMode({ isDark }) {
     const controller = new AbortController();
     abortRef.current = controller;
 
-    fetch(`${API_BASE}/rag`, {
+    authFetch(`${API_BASE}/rag`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: userMsg.content }),

@@ -4,6 +4,7 @@
  * 展示周报、月报、年度报表列表。支持分类筛选和预览。
  */
 import React, { useState, useEffect } from 'react';
+import { authFetch } from '../api';
 import { Typography, Card, Spin, Empty, Tag, Segmented } from 'antd';
 import { BarChartOutlined, RightOutlined, CalendarOutlined } from '@ant-design/icons';
 
@@ -17,7 +18,7 @@ function ReportBrowser({ isDark, onSelectDoc }) {
   const loadReports = (cat) => {
     setLoading(true);
     const url = cat ? `/api/reports?category=${encodeURIComponent(cat)}` : '/api/reports';
-    fetch(url)
+    authFetch(url)
       .then(r => r.json())
       .then(data => {
         setReports(data?.reports || []);

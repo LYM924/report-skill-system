@@ -17,6 +17,7 @@
  */
 
 import React, { useState, useEffect, useMemo, useRef, Suspense } from 'react';
+import { authFetch } from '../api';
 import { Typography, Card, Tag, Input, Button, Select, Row, Col, Spin, Empty, Table, Tooltip, Skeleton } from 'antd';
 import {
   SearchOutlined, RobotOutlined, LinkOutlined, FileSearchOutlined, CloudUploadOutlined,
@@ -70,6 +71,7 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
   const suggestTimer = useRef(null);  // 防抖定时器
   const [relatedSearches, setRelatedSearches] = useState([]);  // 相关搜索推荐
   const [activeFacets, setActiveFacets] = useState({});  // 当前激活的分面筛选 {dept: "xxx", source: "faq_knowledge"}
+  const [summaryRetryKey, setSummaryRetryKey] = useState(0);  // "大模型总结"按钮重试计数
 
   const handleQuickAction = (key) => {
     if (key === 'ai_summary') {
@@ -78,7 +80,8 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
         setTimeout(() => setQuickActionMsg(null), 3000);
         return;
       }
-      // Re-trigger AI summary by toggling stream URL
+      // 重新触发 AI 总结（retryKey 递增使 AISummaryPanel 强制重新起流）
+      setSummaryRetryKey(k => k + 1);
       onSearchResultsChange({ ...searchResults });
     } else if (key === 'auto_link') {
       if (!searchQuery.trim()) {
@@ -105,7 +108,7 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
       }
       const kw = (searchResults?.tokens || [searchQuery.trim()]).join(',');
       setQuickActionMsg('正在匹配相似问题...');
-      fetch(`/api/faq/similar?keywords=${encodeURIComponent(kw)}`)
+      authFetch(`/api/faq/similar?keywords=${encodeURIComponent(kw)}`)
         .then(r => r.json())
         .then(data => {
           const faqs = data?.faqs || [];
@@ -203,7 +206,7 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
       setSearchTime(Math.round(performance.now() - startTime));
       setShowHistory(false);
       // 获取相关搜索推荐
-      fetch(`/api/search/related?q=${encodeURIComponent(q)}`)
+      authFetch(`/api/search/related?q=${encodeURIComponent(q)}`)
         .then(r => r.json())
         .then(data => setRelatedSearches(data?.related || []))
         .catch(() => setRelatedSearches([]));
@@ -234,7 +237,7 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
     if (suggestTimer.current) clearTimeout(suggestTimer.current);
     if (val.trim().length >= 2) {
       suggestTimer.current = setTimeout(() => {
-        fetch(`/api/suggest?q=${encodeURIComponent(val.trim())}`)
+        authFetch(`/api/suggest?q=${encodeURIComponent(val.trim())}`)
           .then(r => r.json())
           .then(data => {
             setSuggestions(data?.suggestions || []);
@@ -247,11 +250,14 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
     }
   };
 
-  // 分组搜索结果
+  // 分组搜索结果（含分面筛选：按部门/来源过滤当前结果集）
   const groupedResults = useMemo(() => {
     if (!searchResults || !searchResults.results) return { faq: [], doc: [], report: [] };
     const groups = { faq: [], doc: [], report: [] };
+    const filters = activeFacets || {};
     searchResults.results.forEach(item => {
+      if (filters.dept && item.dept !== filters.dept) return;
+      if (filters.source && (item.source || '') !== filters.source) return;
       const source = item.source || '';
       if (source === 'faq_knowledge') {
         groups.faq.push(item);
@@ -262,7 +268,9 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
       }
     });
     return groups;
-  }, [searchResults]);
+  }, [searchResults, activeFacets]);
+
+  const filteredCount = (groupedResults.faq?.length || 0) + (groupedResults.doc?.length || 0) + (groupedResults.report?.length || 0);
 
   const stats = dashboardStats || {};
   const hasResults = searchResults && searchResults.results && searchResults.results.length > 0;
@@ -487,6 +495,7 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
       {searchResults?.claude_stream_url && (
         <AISummaryPanel
           streamUrl={searchResults.claude_stream_url}
+          retryKey={summaryRetryKey}
           onSummaryText={setAiSummaryText}
         />
       )}
@@ -569,6 +578,14 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
                       </Button>
                     )}
                   </div>
+                </div>
+              )}
+
+              {/* 筛选无结果提示 */}
+              {Object.keys(activeFacets).length > 0 && filteredCount === 0 && (
+                <div style={{ textAlign: 'center', padding: '24px 0', color: '#999', fontSize: 13 }}>
+                  当前筛选条件下无匹配结果
+                  <Button size="small" type="link" onClick={() => setActiveFacets({})}>清除筛选</Button>
                 </div>
               )}
 

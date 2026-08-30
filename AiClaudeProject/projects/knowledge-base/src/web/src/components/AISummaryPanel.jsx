@@ -21,7 +21,7 @@ function isRateLimitError(err) {
 }
 
 /** AI 总结面板 */
-function AISummaryPanel({ streamUrl, onSummaryText }) {
+function AISummaryPanel({ streamUrl, onSummaryText, retryKey = 0 }) {
   const [summary, setSummary] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [done, setDone] = useState(false);
@@ -30,6 +30,7 @@ function AISummaryPanel({ streamUrl, onSummaryText }) {
   const [deepMode, setDeepMode] = useState(false);
   const abortRef = useRef(null);
   const lastStreamUrlRef = useRef(null);
+  const lastRetryRef = useRef(0);
   const fullTextRef = useRef(''); // 累积完整文本，避免闭包问题 // 累积完整文本，避免闭包问题 // 防止 Tab 切换回来自动重触发
 
   const startStream = useCallback((url) => {
@@ -54,9 +55,14 @@ function AISummaryPanel({ streamUrl, onSummaryText }) {
     return abort;
   }, []);
 
-  // 自动触发摘要（仅首次挂载或 streamUrl 变化时）
+  // 自动触发摘要（首次挂载 / streamUrl 变化 / retryKey 变化时）
   useEffect(() => {
     if (!streamUrl) return;
+    // retryKey 递增 = 用户点击"大模型总结"重新触发，清除去重标记强制重新起流
+    if (retryKey > 0 && lastRetryRef.current !== retryKey) {
+      lastRetryRef.current = retryKey;
+      lastStreamUrlRef.current = null;
+    }
     // 如果是同一个 streamUrl（Tab 切换后重新挂载），跳过
     if (lastStreamUrlRef.current === streamUrl) return;
     lastStreamUrlRef.current = streamUrl;
@@ -72,7 +78,7 @@ function AISummaryPanel({ streamUrl, onSummaryText }) {
     return () => {
       abortRef.current?.(); // 卸载时中止当前流（包括深度分析）
     };
-  }, [streamUrl, startStream]);
+  }, [streamUrl, startStream, retryKey]);
 
   // 深度分析
   const handleDeepAnalysis = () => {

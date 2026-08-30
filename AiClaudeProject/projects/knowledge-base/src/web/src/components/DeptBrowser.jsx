@@ -5,6 +5,7 @@
  * 支持编辑文档元数据（部门、产品模块、关键词）
  */
 import React, { useState, useEffect } from 'react';
+import { authFetch } from '../api';
 import { Typography, Card, Table, Tag, Input, Button, Spin, Empty, Modal, AutoComplete, message } from 'antd';
 import { SearchOutlined, EditOutlined } from '@ant-design/icons';
 import ModuleSelect from './ModuleSelect';
@@ -39,7 +40,7 @@ function DeptBrowser({ deptId, deptName, dept, dept3, isDark, onSelectDoc }) {
     if (effectiveDeptName) {
       params.set('module', effectiveDeptName);
     }
-    fetch(`/api/documents?${params.toString()}`)
+    authFetch(`/api/documents?${params.toString()}`)
       .then(r => r.json())
       .then(data => {
         setDocs(data?.documents || []);
@@ -80,7 +81,7 @@ function DeptBrowser({ deptId, deptName, dept, dept3, isDark, onSelectDoc }) {
       if (editFilename && editFilename !== editRecord.name) {
         params.set('new_filename', editFilename);
       }
-      const resp = await fetch(`/api/document/update?${params.toString()}`);
+      const resp = await authFetch(`/api/document/update?${params.toString()}`);
       const data = await resp.json();
       if (!resp.ok || data.error) throw new Error(data.error || '保存失败');
       message.success('文档元数据已更新，索引已刷新');

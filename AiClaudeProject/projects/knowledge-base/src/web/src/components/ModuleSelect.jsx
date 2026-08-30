@@ -5,6 +5,7 @@
  * 允许输入自定义值，也支持从下拉列表中选择
  */
 import React, { useState, useEffect } from 'react';
+import { authFetch } from '../api';
 import { AutoComplete } from 'antd';
 
 /** 从 menu API 数据中提取所有模块名 */
@@ -49,7 +50,7 @@ function ModuleSelect({ value, onChange, placeholder = '输入模块名搜索...
       setOptions(cachedModules);
       return;
     }
-    fetch('/api/menu')
+    authFetch('/api/menu')
       .then(r => r.json())
       .then(data => {
         const mods = extractModules(data);

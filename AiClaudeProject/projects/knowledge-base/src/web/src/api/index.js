@@ -7,6 +7,73 @@
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
+const TOKEN_KEY = 'kb_token';
+
+/** 获取当前登录 token */
+export function getToken() {
+  return localStorage.getItem(TOKEN_KEY) || '';
+}
+
+/** 保存 token */
+export function setToken(token) {
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+/** 清除 token（登出/401 时） */
+export function clearToken() {
+  localStorage.removeItem(TOKEN_KEY);
+}
+
+/** 是否已登录 */
+export function isAuthed() {
+  return !!getToken();
+}
+
+/** 构建带鉴权的请求头 */
+function authHeaders(extra = {}) {
+  const headers = { ...extra };
+  const token = getToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  return headers;
+}
+
+/** 401 全局通知（App/TopNav 监听后弹出登录框） */
+function notifyAuthRequired() {
+  clearToken();
+  window.dispatchEvent(new Event('kb-auth-required'));
+}
+
+/**
+ * 带鉴权的通用 fetch（供组件裸调用与封装层共用）
+ * - 自动附加 Authorization 头
+ * - 401 时清除 token 并广播 kb-auth-required 事件
+ */
+export async function authFetch(url, options = {}) {
+  const resp = await fetch(url, { ...options, headers: authHeaders(options.headers || {}) });
+  if (resp.status === 401) notifyAuthRequired();
+  return resp;
+}
+
+/**
+ * 登录：POST /auth/login（JSON body）
+ * @returns {Promise<{ok: boolean, error?: string}>}
+ */
+export async function login(username, password) {
+  try {
+    const resp = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) return { ok: false, error: data.error || data.detail || '登录失败' };
+    setToken(data.token);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: '网络错误，请稍后重试' };
+  }
+}
+
 /**
  * 通用请求函数
  */
@@ -14,7 +81,7 @@ async function apiFetch(path, params = {}) {
   const query = new URLSearchParams(params).toString();
   const url = `${API_BASE}${path}${query ? '?' + query : ''}`;
   try {
-    const resp = await fetch(url);
+    const resp = await authFetch(url);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     return await resp.json();
   } catch (e) {
@@ -30,7 +97,7 @@ async function apiFetch(path, params = {}) {
  * @returns {Promise<{results, answer, faqs, tickets, claude_stream_url}>}
  */
 export async function searchKnowledge(query, scope = 'all', page = 1) {
-  const data = await apiFetch('/search', { q: query, top: 10, page, page_size: 10 });
+  const data = await apiFetch('/search', { q: query, scope, top: 10, page, page_size: 10 });
   if (!data) return { results: [], answer: null, faqs: [], tickets: [] };
 
   return {
@@ -119,7 +186,7 @@ export function streamClaudeSummary(url, callbacks = {}) {
   const { onToken, onComplete, onError } = callbacks;
   const controller = new AbortController();
 
-  fetch(url, { signal: controller.signal })
+  authFetch(url, { signal: controller.signal })
     .then(async (response) => {
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
@@ -244,7 +311,7 @@ export async function sendFeedback(query, resultId, resultPath, type) {
 export async function updateDocument(path, { dept, product, keywords, newFilename } = {}) {
   const params = new URLSearchParams({ path, dept: dept || '', product: product || '', keywords: keywords || '' });
   if (newFilename) params.set('new_filename', newFilename);
-  const resp = await fetch(`${API_BASE}/document/update?${params.toString()}`);
+  const resp = await authFetch(`${API_BASE}/document/update?${params.toString()}`);
   const data = await resp.json();
   if (!resp.ok || data.error) throw new Error(data.error || '更新失败');
   return data;
@@ -254,7 +321,7 @@ export async function updateDocument(path, { dept, product, keywords, newFilenam
  * 上传文档
  */
 export async function uploadDocument({ filename, content, dept, module }) {
-  const resp = await fetch(`${API_BASE}/document/upload`, {
+  const resp = await authFetch(`${API_BASE}/document/upload`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ filename, content, dept, module }),
@@ -283,7 +350,7 @@ export async function getKeywords(q = '', page = 1) {
  * @param {{keyword, module_id, dept_id, dept, module}} params
  */
 export async function addKeyword({ keyword, module_id, dept_id, dept, module }) {
-  const resp = await fetch(`${API_BASE}/keywords`, {
+  const resp = await authFetch(`${API_BASE}/keywords`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ keyword, module_id, dept_id, dept, module }),
@@ -296,7 +363,7 @@ export async function addKeyword({ keyword, module_id, dept_id, dept, module }) 
  * @param {{mapping_id, keyword?, module_id?, dept_id?, dept?}} params
  */
 export async function updateKeyword({ mapping_id, keyword, module_id, dept_id, dept }) {
-  const resp = await fetch(`${API_BASE}/keywords`, {
+  const resp = await authFetch(`${API_BASE}/keywords`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ mapping_id, keyword, module_id, dept_id, dept }),
@@ -309,7 +376,7 @@ export async function updateKeyword({ mapping_id, keyword, module_id, dept_id, d
  * @param {{mapping_id?, keyword_id?}} params
  */
 export async function deleteKeyword({ mapping_id, keyword_id } = {}) {
-  const resp = await fetch(`${API_BASE}/keywords`, {
+  const resp = await authFetch(`${API_BASE}/keywords`, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ mapping_id, keyword_id }),
@@ -334,7 +401,7 @@ export function ragQuery(message, callbacks = {}) {
   const { onToken, onComplete, onError } = callbacks;
   const controller = new AbortController();
 
-  fetch('/api/rag', {
+  authFetch('/api/rag', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message }),

@@ -4,6 +4,7 @@
  * 展示搜索服务器日志，支持颜色编码和刷新。
  */
 import React, { useState, useEffect } from 'react';
+import { authFetch } from '../api';
 import { Typography, Card, Button, Empty, Spin } from 'antd';
 
 const { Text } = Typography;
@@ -14,7 +15,7 @@ function LogViewer() {
 
   const loadLogs = () => {
     setLoading(true);
-    fetch('/api/logs?lines=200')
+    authFetch('/api/logs?lines=200')
       .then(r => r.json())
       .then(data => {
         setLogs(data?.logs || []);

@@ -12,6 +12,7 @@
  *   style       - 额外样式
  */
 import React, { useState, useEffect, useMemo } from 'react';
+import { authFetch } from '../api';
 import { Cascader } from 'antd';
 
 /** 将部门树转为 Cascader 需要的 options 格式 */
@@ -29,7 +30,7 @@ function DeptCascader({ value, onChange, multiple = false, placeholder = '请选
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/departments/tree')
+    authFetch('/api/departments/tree')
       .then(r => r.json())
       .then(data => {
         setOptions(treeToOptions(data?.tree || []));

@@ -5,6 +5,7 @@
  * 使用 ID 方案：mapping_id 精准定位，dept_id 关联部门。
  */
 import React, { useState, useEffect } from 'react';
+import { authFetch } from '../api';
 import { Typography, Card, Table, Tag, Button, Input, Modal, message } from 'antd';
 import ModuleSelect from './ModuleSelect';
 import DeptCascader from './DeptCascader';
@@ -34,7 +35,7 @@ function KeywordManager() {
 
   const loadKeywords = () => {
     setLoading(true);
-    fetch(`/api/keywords?q=${encodeURIComponent(search)}&page_size=200`)
+    authFetch(`/api/keywords?q=${encodeURIComponent(search)}&page_size=200`)
       .then(r => r.json())
       .then(data => { setKeywords(data?.keywords || []); setLoading(false); })
       .catch(() => setLoading(false));

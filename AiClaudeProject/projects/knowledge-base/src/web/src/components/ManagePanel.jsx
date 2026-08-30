@@ -5,6 +5,7 @@
  * 关键词管理等功能入口。草稿数据存储在 localStorage 中。
  */
 import React, { useState, useEffect } from 'react';
+import { authFetch } from '../api';
 import { Typography, Card, Row, Col, Table, Tag, Button, Empty, Modal, Select, Input, message } from 'antd';
 import { CloudUploadOutlined, QuestionCircleOutlined, ReloadOutlined, SearchOutlined, BugOutlined, FileTextOutlined } from '@ant-design/icons';
 import { saveFAQ, deleteFAQ } from '../api';
@@ -92,7 +93,7 @@ function ManagePanel({ isDark }) {
 
     try {
       const kw = (record.keywords || []).join(',');
-      const resp = await fetch(`/api/faq/suggest?title=${encodeURIComponent(record.question)}&keywords=${encodeURIComponent(kw)}`);
+      const resp = await authFetch(`/api/faq/suggest?title=${encodeURIComponent(record.question)}&keywords=${encodeURIComponent(kw)}`);
       const data = await resp.json();
       if (data?.dept) setPublishDept(data.dept);
       if (data?.module) setPublishModule(data.module);
@@ -227,7 +228,7 @@ function ManagePanel({ isDark }) {
           </Text>
           <Button type="primary" icon={<ReloadOutlined />}
             onClick={async () => {
-              await fetch('/api/rebuild');
+              await authFetch('/api/rebuild');
               message.success('索引重建完成');
             }}>
             开始重建
@@ -381,8 +382,9 @@ function ManagePanel({ isDark }) {
                 dept: uploadDept,
                 module: uploadModule,
               });
-              const resp = await fetch('/api/document/upload', {
+              const resp = await authFetch('/api/document/upload', {
                 method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
                 body,
               });
               const result = await resp.json();

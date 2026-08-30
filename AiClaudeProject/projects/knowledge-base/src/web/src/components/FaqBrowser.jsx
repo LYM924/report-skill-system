@@ -4,6 +4,7 @@
  * 左侧 FAQ库 点击部门后，在中间面板展示该部门下的 FAQ 列表
  */
 import React, { useState, useEffect } from 'react';
+import { authFetch } from '../api';
 import { Typography, Card, Tag, Spin, Empty } from 'antd';
 import { QuestionCircleOutlined, RightOutlined } from '@ant-design/icons';
 
@@ -15,7 +16,7 @@ function FaqBrowser({ dept, isDark, onSelectDoc }) {
 
   useEffect(() => {
     setLoading(true);
-    fetch('/api/faq')
+    authFetch('/api/faq')
       .then(r => r.json())
       .then(data => {
         const all = data?.faqs || [];

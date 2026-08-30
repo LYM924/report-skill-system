@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { authFetch } from './api';
 import { Layout, ConfigProvider, Modal, theme } from 'antd';
 import { SearchOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import zhCN from 'antd/locale/zh_CN';
@@ -126,19 +127,6 @@ function App() {
   const handleNavChange = (key) => {
     setSelectedNav(key);
     setTopTab('search');  // 切换到文档搜索Tab，确保中间面板响应用户点击
-
-    // FAQ 具体条目点击 → 右侧面板展示详情
-    if (key.startsWith('faq-item-')) {
-      const faqId = key.replace('faq-item-', '');
-      fetch(`/api/faq?id=${faqId}`)
-        .then(r => r.json())
-        .then(data => {
-          if (data && !data.error) {
-            setSelectedDoc({ ...data, title: data.title });
-          }
-        });
-      return;
-    }
 
     // 映射到搜索范围
     const scopeMap = {
