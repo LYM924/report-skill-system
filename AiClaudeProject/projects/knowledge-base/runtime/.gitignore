@@ -5,4 +5,6 @@
 search_counter.json
 logs/
 static/
-!cache/.gitkeep
+!cache/.gitkeep# 数据库文件（运行时生成/回退产物，不入库）
+kb.db
+knowledge.db

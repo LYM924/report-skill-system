@@ -14,8 +14,8 @@ SearchEngine 内存搜索引擎（jieba 分词 + BM25 + FAISS 向量 + 关键词
 DBRepository（PostgreSQL 主数据源） + 文件系统（data/*.md 内容权威）
 ```
 
-- **后端唯一实现**：FastAPI（`src/server/main.py`）。旧实现 `search_server.py` 已归档至 `src/server/legacy/`，不再使用。
-- **数据库**：PostgreSQL `knowledge_base`（连接串见 `.env` 的 `DATABASE_URL_SYNC`）；PG 不可用时回退 SQLite `runtime/knowledge.db`。
+- **后端唯一实现**：FastAPI（`src/server/main.py`）。旧实现 search_server.py 已彻底删除（git 历史可查）。
+- **数据库**：PostgreSQL `knowledge_base`（连接串见 `.env` 的 `DATABASE_URL_SYNC`）；PG 不可用时自动回退 SQLite（`runtime/knowledge.db` 按需自动创建，不入库）。
 - **Schema 管理**：统一由 `config/migrations/*.sql` 演进（幂等脚本，psql 应用），禁止手工双份 schema。
 - **鉴权**：JWT（`POST /api/auth/login`，账号 `ADMIN_USER`/`ADMIN_PASS` 见 `.env`），除登录与静态资源外全部接口需 `Authorization: Bearer <token>`。
 - **多用户与配置中心**：`users` 表（管理员可创建/重置/删除账号）；每个用户在 Web 界面「系统管理 → 配置中心」保存自己的 AI 模型/API地址/AppKey（加密存储、界面脱敏、立即生效），AI 总结/问答按本人配置调用；未配置用户回退服务器 `.env` 默认值。
