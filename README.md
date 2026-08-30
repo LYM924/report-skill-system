@@ -1,20 +1,25 @@
-⏺ 推送成功！让我配置好远程追踪，方便后续使用。
+# report-skill-system
 
-⏺ 全部完成。仓库地址：https://github.com/LYM924/report-skill-system
+AI 辅助技术支持工作台：产品知识库、报表生成与知识沉淀。
 
-  已推送内容（446 个文件）：
+## 项目结构
 
-| 目录 | 内容 |
-|:---|:---|
-| `ProjectSkill/projects/报表管理系统/` | 周报技能（数据获取/审计/输出三阶段） |
-| `ProjectSkill/document-skills/` | 文档技能（pdf/docx/xlsx/pptx 等） |
-| `ProjectSkill/superpowers/` | 超级能力技能框架 |
-| `docs/superpowers/` | 知识管理系统设计文档 |
-| `templates/` | Jinja2 报表模板（周/月/半年报） |
-| `scripts/` | 报表生成和导出脚本 |
-| `data/` | YAML 数据模板 |
+```
+AiClaudeProject/
+├── 2026产品业务知识库/   # 产品业务知识沉淀（按业务模块分区）
+├── 2026报表数据知识库/   # 周报/月报数据
+├── projects/
+│   ├── knowledge-base/   # 智能知识库系统（FastAPI + React + PostgreSQL，端口8000）
+│   └── report-system/    # 报表管理系统
+├── ProjectSkill/         # Claude Code 技能
+└── 其他文档区/           # 架构分析报告、实施方案等文档
+```
 
-  已排除： 原始工单数据（原始报表文档/）、已生成报表、.DS_Store、PDF 文件
+## 智能知识库系统
 
-  后续使用 git push 即可直接推送，其他授权用户 clone 后即可使用。
-
+详见 `AiClaudeProject/projects/knowledge-base/README.md`：
+- 启动：`./start.sh`（FastAPI + uvicorn，8000 端口）
+- 前端改动后需 `cd src/web && npx vite build`
+- 冒烟测试：`AUTH_TOKEN=xxx ./scripts/smoke_test.sh localhost:8000 --write`
+- 数据库迁移：`config/migrations/*.sql`（幂等，psql 应用）
+- Web 登录后可在「系统管理 → 配置中心」配置自己的 AI 模型与 AppKey
