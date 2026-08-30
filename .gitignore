@@ -17,3 +17,9 @@ skills-lock.json
 weasyprint-66.0-py3-none-any.whl
 ~$*
 node_modules/
+
+# 知识库项目：密钥/备份/运行时产物不入库
+AiClaudeProject/projects/knowledge-base/.env
+AiClaudeProject/projects/knowledge-base/backups/
+AiClaudeProject/projects/knowledge-base/runtime/cache/
+AiClaudeProject/projects/knowledge-base/runtime/logs/
