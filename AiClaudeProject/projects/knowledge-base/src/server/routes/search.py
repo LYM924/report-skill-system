@@ -169,10 +169,7 @@ async def claude_stream(
     system = prompt.get("system", "")
     messages = prompt.get("messages", [{"role": "user", "content": session.get("query", "")}])
     return StreamingResponse(
-        claude_service.sse_generate(
-            system=system, messages=messages, deep=bool(deep),
-            model=cfg.get("model"), base_url=cfg.get("base_url"), auth_token=cfg.get("api_key"),
-            max_tokens=cfg.get("max_tokens", 4096)),
+        claude_service.sse_generate_cfg(cfg, system=system, messages=messages, deep=bool(deep)),
         media_type="text/event-stream",
     )
 
@@ -246,12 +243,9 @@ def _user_ai_cfg(user: str):
 
 
 def _sse_with_cfg(cfg: dict, system: str, messages: list):
-    """用解析出的配置发起 SSE 流"""
+    """用解析出的配置发起 SSE 流（按协议自动选择 anthropic/openai 通道）"""
     return StreamingResponse(
-        claude_service.sse_generate(
-            system=system, messages=messages,
-            model=cfg.get("model"), base_url=cfg.get("base_url"), auth_token=cfg.get("api_key"),
-            max_tokens=cfg.get("max_tokens", 4096)),
+        claude_service.sse_generate_cfg(cfg, system=system, messages=messages),
         media_type="text/event-stream",
     )
 

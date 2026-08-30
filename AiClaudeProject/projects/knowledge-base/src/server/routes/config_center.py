@@ -21,12 +21,21 @@ class AIConfigBody(BaseModel):
     base_url: str = ""
     api_key: str = ""          # 空 = 保留已有密钥
     max_tokens: int = 4096
+    provider: str = "custom"   # 提供商标识（预设列表见 /config/ai/presets）
+    protocol: str = "anthropic"  # anthropic | openai
 
 
 class AIConfigTestBody(BaseModel):
     model: str = "deepseek-v4-pro"
     base_url: str = ""
     api_key: str = ""          # 空 = 用已保存的密钥测试
+    protocol: str = "anthropic"
+
+
+@router.get("/config/ai/presets")
+async def ai_presets(user: str = Depends(verify_token)):
+    """主流大模型提供商预设（名称/协议/默认地址/推荐模型）"""
+    return {"presets": ai_config.get_provider_presets()}
 
 
 @router.get("/config/ai")
@@ -39,6 +48,8 @@ async def get_ai_config(user: str = Depends(verify_token)):
         "api_key_masked": cfg.get("api_key_masked", ""),
         "has_key": cfg.get("has_key", False),
         "max_tokens": cfg["max_tokens"],
+        "provider": cfg.get("provider", "custom"),
+        "protocol": cfg.get("protocol", "anthropic"),
         "source": cfg.get("source", "none"),
     }
 
@@ -48,8 +59,11 @@ async def save_ai_config(body: AIConfigBody, user: str = Depends(verify_token)):
     """保存当前用户的 AI 配置"""
     if not body.model.strip():
         return JSONResponse({"error": "模型名必填"}, status_code=422)
+    if body.protocol not in ("anthropic", "openai"):
+        return JSONResponse({"error": "protocol 必须是 anthropic 或 openai"}, status_code=422)
     result = ai_config.save_ai_config(user, body.model.strip(), body.base_url.strip(),
-                                      body.api_key.strip(), body.max_tokens)
+                                      body.api_key.strip(), body.max_tokens,
+                                      body.provider, body.protocol)
     if "error" in result:
         return JSONResponse(result, status_code=400)
     return {"ok": True}
@@ -59,10 +73,12 @@ async def save_ai_config(body: AIConfigBody, user: str = Depends(verify_token)):
 async def test_ai_config(body: AIConfigTestBody, user: str = Depends(verify_token)):
     """测试连通性：api_key 传空时使用已保存的密钥"""
     api_key = body.api_key.strip()
+    protocol = body.protocol
     if not api_key:
         cfg = ai_config.get_ai_config(user)
         api_key = cfg.get("api_key", "")
-    return ai_config.test_ai_config(body.model.strip(), body.base_url.strip(), api_key)
+        protocol = protocol or cfg.get("protocol", "anthropic")
+    return ai_config.test_ai_config(body.model.strip(), body.base_url.strip(), api_key, protocol)
 
 
 # ══════ 用户管理（仅管理员）══════

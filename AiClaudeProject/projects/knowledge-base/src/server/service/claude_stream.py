@@ -40,7 +40,7 @@ def has_credentials() -> bool:
 
 async def sse_generate(system: str = "", messages: list = None, max_tokens: int = 4096, deep: bool = False,
                        model: str = None, base_url: str = None, auth_token: str = None, api_key: str = None):
-    """异步生成器：输出 SSE data: 行（text / complete / error / [DONE]）
+    """异步生成器（Anthropic 协议）：输出 SSE data: 行（text / complete / error / [DONE]）
 
     显式传入 model/base_url/auth_token/api_key 时优先使用（每用户配置）；
     未传时回退服务器环境变量。
@@ -68,3 +68,52 @@ async def sse_generate(system: str = "", messages: list = None, max_tokens: int 
         yield f"data: {json.dumps({'error': 'rate_limit', 'message': 'AI 服务调用频率过高，请稍后重试', 'hint': '当前 API 配额已用尽，您仍可查看搜索结果和 FAQ 文档'})}\n\n"
     except Exception as e:
         yield f"data: {json.dumps({'error': 'api_error', 'message': f'AI 服务异常: {str(e)}'})}\n\n"
+
+
+async def sse_generate_openai(system: str = "", messages: list = None, max_tokens: int = 4096,
+                              deep: bool = False, model: str = None, base_url: str = None,
+                              api_key: str = None):
+    """异步生成器（OpenAI 兼容协议）：OpenAI/通义千问/GLM/Kimi/豆包/Ollama 等
+
+    将 system + user messages 转换为 chat.completions 消息格式，流式输出 SSE data: 行。
+    """
+    if deep:
+        system = (system or "") + "\n\n【深度分析模式】请对上述问题做更深入全面的分析，涵盖背景、根因、影响范围与建议。"
+    try:
+        import openai
+        kwargs = {"api_key": api_key or ""}
+        if base_url:
+            kwargs["base_url"] = base_url
+        client = openai.OpenAI(**kwargs)
+        chat_messages = []
+        if system:
+            chat_messages.append({"role": "system", "content": system})
+        chat_messages.extend(messages or [])
+        stream = client.chat.completions.create(
+            model=model or "gpt-4o-mini", max_tokens=max_tokens,
+            messages=chat_messages, stream=True,
+        )
+        for chunk in stream:
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta
+            content = getattr(delta, "content", None)
+            if content:
+                yield f"data: {json.dumps({'text': content})}\n\n"
+        yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+        yield "data: [DONE]\n\n"
+    except Exception as e:
+        yield f"data: {json.dumps({'error': 'api_error', 'message': f'AI 服务异常: {str(e)}'})}\n\n"
+
+
+def sse_generate_cfg(cfg: dict, system: str = "", messages: list = None, deep: bool = False):
+    """按配置分发：protocol=openai 走 OpenAI 兼容协议，否则走 Anthropic 协议（返回异步生成器）"""
+    if (cfg or {}).get("protocol") == "openai":
+        return sse_generate_openai(
+            system=system, messages=messages, deep=deep,
+            model=cfg.get("model"), base_url=cfg.get("base_url"),
+            api_key=cfg.get("api_key"), max_tokens=cfg.get("max_tokens", 4096))
+    return sse_generate(
+        system=system, messages=messages, deep=deep,
+        model=cfg.get("model"), base_url=cfg.get("base_url"),
+        auth_token=cfg.get("api_key"), max_tokens=cfg.get("max_tokens", 4096))

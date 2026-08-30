@@ -278,13 +278,14 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
   const hasResults = searchResults && searchResults.results && searchResults.results.length > 0;
   const keywords = searchResults?.tokens || [];
 
+  // 系统管理页（左侧菜单 系统管理 → 配置中心/用户管理）
+  // 必须在 topTab 判断之前：点击系统管理菜单时 topTab 会切到 manage
+  if (selectedNav === 'settings-ai') return <SettingsCenter isDark={isDark} />;
+  if (selectedNav === 'settings-users') return <UserManager isDark={isDark} />;
+
   if (topTab === 'stats') return <Suspense fallback={<TabFallback />}><StatsDashboard isDark={isDark} /></Suspense>;
   if (topTab === 'ai') return <Suspense fallback={<TabFallback />}><ChatMode isDark={isDark} /></Suspense>;
   if (topTab === 'manage') return <Suspense fallback={<TabFallback />}><ManagePanel isDark={isDark} /></Suspense>;
-
-  // 系统管理页（左侧菜单 系统管理 → 配置中心/用户管理）
-  if (selectedNav === 'settings-ai') return <SettingsCenter isDark={isDark} />;
-  if (selectedNav === 'settings-users') return <UserManager isDark={isDark} />;
 
   // FAQ 部门浏览（左侧 FAQ库 点击部门触发）
   if (selectedNav && selectedNav.startsWith('faq-dept-')) {
