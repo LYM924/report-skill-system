@@ -1,15 +1,24 @@
 """认证路由"""
 from fastapi import APIRouter, Depends
-from auth import create_token, verify_token
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+
+from auth import create_token, verify_token, check_credentials
 
 router = APIRouter(tags=["认证"])
 
 
+class LoginBody(BaseModel):
+    username: str
+    password: str
+
+
 @router.post("/auth/login")
-async def login(username: str, password: str):
-    """登录获取 Token（开发模式：任意用户名密码返回 token）"""
-    # TODO: 接入真实用户认证
-    token = create_token(username)
+async def login(body: LoginBody):
+    """登录：校验 ADMIN_USER/ADMIN_PASS（env 配置），签发 JWT"""
+    if not check_credentials(body.username, body.password):
+        return JSONResponse({"error": "用户名或密码错误"}, status_code=401)
+    token = create_token(body.username)
     return {"token": token, "token_type": "bearer"}
 
 

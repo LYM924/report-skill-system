@@ -1283,15 +1283,16 @@ tickets: []
                     query += " ORDER BY year DESC, week DESC"
                     rows = db_repo._execute(query, query_params)
                     for row in rows:
+                        ds = row["dept_summary"]
                         reports.append({
                             "id": row["id"],
                             "title": row["title"],
                             "week": row["week"],
                             "year": row["year"],
                             "category": row["category"],
-                            "summary": row["dept_summary"][:200] if row["dept_summary"] else "",
+                            "summary": (json.dumps(ds, ensure_ascii=False)[:200] if ds else ""),
                             "path": row["path"],
-                            "created_at": row["created_at"],
+                            "created_at": str(row["created_at"]),
                         })
                     total = len(reports)
                     start = (page - 1) * page_size

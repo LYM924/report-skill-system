@@ -1,13 +1,43 @@
-"""文档管理路由"""
-import json, re, os
-from datetime import datetime
-from fastapi import APIRouter, Query, Depends
+"""文档管理路由：列表/详情/图片代理/元数据更新/上传
+
+安全约定：所有用户提供的路径经 service.paths.safe_data_path 校验，
+必须解析到 DATA_DIR 内（防路径穿越）。
+"""
+import ast
+import datetime
+import json
+import os
+import re
+import threading
+
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import JSONResponse, Response
+from pydantic import BaseModel
+
+import main
 from auth import verify_token
 from config import settings
+from repository import DBRepository
+from repository.dept_mapping import get_dept_path, get_submodule_path
+from service.paths import safe_data_path
+from routes.health import record_write_failure
 
 router = APIRouter(tags=["文档"])
 
 _mod_cache = None
+
+IMAGE_TYPES = {
+    "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif",
+    "webp": "image/webp", "svg": "image/svg+xml", "bmp": "image/bmp",
+}
+
+
+class UploadBody(BaseModel):
+    filename: str = ""
+    content: str = ""
+    dept: str = ""
+    module: str = ""
+
 
 def _get_module_map():
     global _mod_cache
@@ -35,37 +65,64 @@ def _get_module_map():
             }
     return _mod_cache
 
+
+def _resolve_kw_ids(dept: str, sub_module: str, repo: DBRepository):
+    """解析关键词写入所需的 module_id/dept_id（NULL 安全）"""
+    module_id, dept_id = None, None
+    if sub_module:
+        row = repo._execute_one("SELECT id, department_id FROM modules WHERE name = ? LIMIT 1", (sub_module,))
+        if row:
+            module_id = row["id"]
+            dept_id = row["department_id"]
+    if not dept_id and dept:
+        row = repo._execute_one("SELECT id FROM departments WHERE name = ? LIMIT 1", (dept,))
+        dept_id = row["id"] if row else None
+    return module_id, dept_id
+
+
 @router.get("/documents")
 async def list_documents(
     module: str = Query(""),
     dept_id: str = Query(""),
+    page: int = Query(1),
     page_size: int = Query(200, le=500),
     user: str = Depends(verify_token),
 ):
-    """文档列表"""
-    import main
+    """文档列表（module 过滤 / dept_id 部门筛选，按文件修改时间倒序）"""
     if main.search_engine is None:
         return {"documents": [], "total": 0}
 
     mod_map = _get_module_map()
+
+    # dept_id 筛选：document_departments 关联表（含子部门递归）
+    dept_paths = None
+    if dept_id:
+        try:
+            repo = DBRepository()
+            dept_paths = set(repo.get_documents_by_department(int(dept_id)))
+        except Exception:
+            dept_paths = None
+
     docs = []
     for doc in main.search_engine.kb_docs:
         doc_path = doc.get("path", "")
         if doc_path.startswith("data/faq/"):
             continue
+        if dept_paths is not None and doc_path not in dept_paths:
+            continue
 
-        full_path = settings.PROJECT_DIR / doc_path
+        full_path = safe_data_path(doc_path)
         keywords = []
         updated = ""
-        if full_path.exists():
+        fm_title = ""
+        if full_path and full_path.exists():
             try:
                 mtime = os.path.getmtime(str(full_path))
-                updated = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
+                updated = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
             except Exception:
                 pass
             try:
                 text = full_path.read_text(encoding="utf-8")
-                fm = {}
                 fm_match = re.match(r"^---\s*\n(.*?)\n---", text, re.DOTALL)
                 if fm_match:
                     for line in fm_match.group(1).split("\n"):
@@ -73,10 +130,11 @@ async def list_documents(
                         if line.startswith("keywords:"):
                             kw_str = line.split(":", 1)[1].strip()
                             try:
-                                import ast
                                 keywords = ast.literal_eval(kw_str)
                             except Exception:
                                 keywords = [k.strip().strip("'\"") for k in kw_str.strip("[]").split(",") if k.strip()]
+                        elif line.startswith("title:"):
+                            fm_title = line.split(":", 1)[1].strip()
             except Exception:
                 pass
 
@@ -87,9 +145,26 @@ async def list_documents(
                 cat = info
                 break
 
+        name = doc_title or fm_title
+        # 无意义标题（数字-数字-数字）时取 H1
+        if not name or (len(name) < 12 and any(c.isdigit() for c in name) and name.count("-") >= 2):
+            try:
+                text = full_path.read_text(encoding="utf-8")
+                if fm_title and not (len(fm_title) < 12 and all(c in "0123456789 -·." for c in fm_title)):
+                    name = fm_title
+                else:
+                    for line in text.split("\n"):
+                        if line.startswith("# ") and not line.startswith("## "):
+                            h1 = line[2:].strip()
+                            if h1 and not (len(h1) < 12 and all(c in "0123456789 -·." for c in h1)):
+                                name = h1
+                                break
+            except Exception:
+                pass
+
         d = {
             "id": doc_path,
-            "name": doc.get("title", ""),
+            "name": name or doc_path.split("/")[-1],
             "path": doc_path,
             "dept": cat.get("dept", doc.get("dept", "")),
             "product": cat.get("product", doc.get("domain", "")),
@@ -99,47 +174,46 @@ async def list_documents(
             "updated": updated,
         }
 
-        name = d["name"]
-        if not name or (len(name) < 12 and any(c.isdigit() for c in name) and name.count("-") >= 2):
-            try:
-                text = full_path.read_text(encoding="utf-8")
-                fm_title = ""
-                fm_match = re.match(r"^---\s*\n(.*?)\n---", text, re.DOTALL)
-                if fm_match:
-                    for line in fm_match.group(1).split("\n"):
-                        if line.strip().startswith("title:"):
-                            fm_title = line.split(":", 1)[1].strip()
-                            break
-                if fm_title and not (len(fm_title) < 12 and all(c in "0123456789 -·." for c in fm_title)):
-                    d["name"] = fm_title
-                else:
-                    for line in text.split("\n"):
-                        if line.startswith("# ") and not line.startswith("## "):
-                            h1 = line[2:].strip()
-                            if h1 and not (len(h1) < 12 and all(c in "0123456789 -·." for c in h1)):
-                                d["name"] = h1
-                                break
-            except Exception:
-                pass
-
         if module:
             if module not in (d["dept"], d["product"], d["product_line"], d["module"]):
                 continue
 
-        docs.append(d)
+        docs.append((d, updated))
 
-    return {"documents": docs[:page_size], "total": len(docs)}
+    # 按修改时间倒序
+    docs.sort(key=lambda x: x[1], reverse=True)
+    all_docs = [d for d, _ in docs]
+    start = (page - 1) * page_size
+    return {"documents": all_docs[start:start + page_size], "total": len(all_docs),
+            "page": page, "page_size": page_size}
+
+
+def _rewrite_images(content: str, doc_dir: str) -> str:
+    """相对路径图片改写为 /api/image?path= 代理地址"""
+    def repl(m):
+        alt = m.group(1)
+        src = m.group(2).strip()
+        if src.startswith(("http://", "https://", "/api/image", "data:")):
+            return m.group(0)
+        img = (settings.DATA_DIR / doc_dir / src).resolve()
+        try:
+            img.relative_to(settings.DATA_DIR.resolve())
+            if img.exists():
+                rel = str(img.relative_to(settings.PROJECT_DIR))
+                from urllib.parse import quote
+                return f"![{alt}](/api/image?path={quote(rel)})"
+        except Exception:
+            pass
+        return m.group(0)
+    return re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", repl, content)
 
 
 @router.get("/document")
-async def get_document(
-    path: str = Query(..., description="文档路径"),
-    user: str = Depends(verify_token),
-):
-    """文档详情"""
-    full_path = settings.PROJECT_DIR / path
-    if not full_path.exists():
-        return {"error": "文档不存在"}
+async def get_document(path: str = Query(..., description="文档路径"), user: str = Depends(verify_token)):
+    """文档详情（正文 + frontmatter，图片改走代理）"""
+    full_path = safe_data_path(path)
+    if not full_path or not full_path.exists():
+        return JSONResponse({"error": "文档不存在"}, status_code=404)
     content = full_path.read_text(encoding="utf-8")
     fm = {}
     fm_match = re.match(r"^---\s*\n(.*?)\n---", content, re.DOTALL)
@@ -148,9 +222,255 @@ async def get_document(
             if ":" in line:
                 k, v = line.split(":", 1)
                 fm[k.strip()] = v.strip()
+    doc_dir = os.path.dirname(path)
     return {
         "path": path,
-        "content": content,
+        "content": _rewrite_images(content, doc_dir),
         "frontmatter": fm,
         "title": fm.get("title", path.split("/")[-1]),
     }
+
+
+@router.get("/image")
+async def get_image(path: str = Query(...), user: str = Depends(verify_token)):
+    """图片代理（扩展名白名单，仅限 DATA_DIR 内）"""
+    full_path = safe_data_path(path)
+    if not full_path or not full_path.exists():
+        return JSONResponse({"error": "图片不存在"}, status_code=404)
+    ext = full_path.suffix.lower().lstrip(".")
+    if ext not in IMAGE_TYPES:
+        return Response(content=full_path.read_bytes(), media_type="application/octet-stream")
+    return Response(content=full_path.read_bytes(), media_type=IMAGE_TYPES[ext])
+
+
+def _update_frontmatter(content: str, dept: str, product: str, keywords: str, new_title: str) -> str:
+    """更新/创建 frontmatter 中的部门、产品、关键词、标题字段"""
+    has_fm = content.startswith("---")
+    if has_fm:
+        parts = content.split("---", 2)
+        if len(parts) < 3:
+            has_fm = False
+    if has_fm:
+        fm_lines = parts[1].split("\n")
+        updated = {"dept": dept, "product": product, "keywords": keywords, "title": new_title}
+        seen = set()
+        out = []
+        for line in fm_lines:
+            stripped = line.strip()
+            matched = False
+            for key, val in updated.items():
+                if not val or key in seen:
+                    continue
+                prefixes = {
+                    "dept": ("dept:", "department:"),
+                    "product": ("product:", "domain:", "module:"),
+                    "keywords": ("keywords:",),
+                    "title": ("title:",),
+                }[key]
+                if stripped.startswith(prefixes):
+                    out.append(f"{key}: {val}")
+                    seen.add(key)
+                    matched = True
+                    break
+            if not matched:
+                out.append(line)
+        for key, val in updated.items():
+            if val and key not in seen:
+                out.append(f"{key}: {val}")
+        return "---\n" + "\n".join(out) + "\n---" + parts[2]
+    else:
+        fm = "---\n"
+        if new_title:
+            fm += f"title: {new_title}\n"
+        if dept:
+            fm += f"dept: {dept}\n"
+        if product:
+            fm += f"product: {product}\n"
+        if keywords:
+            fm += f"keywords: {keywords}\n"
+        fm += "---\n\n"
+        return fm + content
+
+
+@router.get("/document/update")
+async def update_document(
+    path: str = Query(..., description="文档路径"),
+    dept: str = Query(""),
+    dept_ids: str = Query(""),
+    product: str = Query(""),
+    keywords: str = Query(""),
+    new_filename: str = Query(""),
+    user: str = Depends(verify_token),
+):
+    """文档元数据更新：改名 / frontmatter 字段 / 部门关联（document_departments）"""
+    full_path = safe_data_path(path)
+    if not full_path or not full_path.exists():
+        return JSONResponse({"error": "文档不存在"}, status_code=404)
+
+    renamed = False
+    # 1. 改名
+    if new_filename:
+        new_name = new_filename.strip()
+        if not new_name.endswith(".md"):
+            new_name += ".md"
+        if "/" in new_name or "\\" in new_name:
+            return JSONResponse({"error": "文件名不能包含路径分隔符"}, status_code=422)
+        target = full_path.parent / new_name
+        if target.exists() and target != full_path:
+            return JSONResponse({"error": "同名文件已存在"}, status_code=400)
+        full_path.rename(target)
+        full_path = target
+        renamed = True
+
+    # 2. frontmatter 更新
+    content = full_path.read_text(encoding="utf-8")
+    new_title = new_filename.replace(".md", "") if new_filename else ""
+    content = _update_frontmatter(content, dept, product, keywords, new_title)
+    full_path.write_text(content, encoding="utf-8")
+
+    # 3. 部门关联（document_departments）
+    if dept_ids:
+        try:
+            repo = DBRepository()
+            repo.set_document_departments(str(full_path.relative_to(settings.PROJECT_DIR)),
+                                          [int(i) for i in dept_ids.split(",") if i.strip().isdigit()])
+        except Exception:
+            record_write_failure("doc_dept_link")
+
+    # 4. 后台重建索引
+    def _rebuild():
+        try:
+            if main.search_engine is not None:
+                import shutil
+                cache_dir = settings.RUNTIME_DIR / "cache"
+                for f in cache_dir.glob("*"):
+                    if f.is_file():
+                        f.unlink()
+                main.search_engine = type(main.search_engine)()
+                main.search_engine.load_all()
+        except Exception:
+            pass
+    threading.Thread(target=_rebuild, daemon=True).start()
+
+    return {"ok": True, "path": str(full_path.relative_to(settings.PROJECT_DIR)), "renamed": renamed}
+
+
+async def _upload_document(filename: str, content: str, dept: str, module: str) -> dict:
+    """上传文档公共逻辑（POST JSON / GET query 共用）"""
+    from keyword_extractor import get_extractor, build_extractor_idf
+
+    if not content or not content.strip():
+        return {"error": "content 必填"}
+    dept = dept or "数智财务组"
+    module = module or "浙里报"
+
+    # 文件名 sanitize（防穿越）
+    safe_name = (filename or "").replace("/", "-").replace("\\", "-").replace(" ", "-").strip()
+    if not safe_name:
+        safe_name = f"doc_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}.md"
+    if not safe_name.endswith(".md"):
+        safe_name += ".md"
+
+    # 标题：H1 提取
+    title = safe_name.replace(".md", "")
+    for line in content.split("\n"):
+        if line.startswith("# ") and not line.startswith("## "):
+            title = line[2:].strip()
+            break
+
+    # 关键词：自动提取（TF-IDF+TextRank），不足 5 个用关键词索引在正文中兜底
+    kw_list = []
+    try:
+        extractor = get_extractor()
+        if not extractor._built:
+            build_extractor_idf(str(settings.DATA_DIR))
+        kw_list = extractor.extract(content, top_k=10)
+    except Exception:
+        kw_list = []
+    if len(kw_list) < 5 and main.search_engine is not None:
+        for kw in main.search_engine.keyword_map:
+            if len(kw) >= 2 and kw in content and kw not in kw_list:
+                kw_list.append(kw)
+            if len(kw_list) >= 10:
+                break
+
+    # 路径与写入
+    dept_dir = get_dept_path(dept) or "other"
+    module_dir = get_submodule_path(module) or "other"
+    target_dir = settings.DATA_DIR / "knowledge" / dept_dir / module_dir
+    target_dir.mkdir(parents=True, exist_ok=True)
+    file_path = target_dir / safe_name
+
+    has_fm = content.strip().startswith("---")
+    today = datetime.date.today().strftime("%Y%m%d")
+    if has_fm:
+        final_content = content
+    else:
+        final_content = f"""---
+title: {title}
+dept: {dept}
+module: {module}
+product: ""
+product_line: ""
+date: {today}
+keywords: {json.dumps(kw_list, ensure_ascii=False)}
+appendix: ""
+related_modules: []
+---
+
+{content}
+"""
+    file_path.write_text(final_content, encoding="utf-8")
+    rel_path = str(file_path.relative_to(settings.PROJECT_DIR))
+
+    # 关键词双表写入
+    repo = DBRepository()
+    try:
+        m_id, d_id = _resolve_kw_ids(dept, module, repo)
+        for kw in kw_list:
+            repo.add_keyword(kw, m_id or 0, d_id or 0, dept, kb_path=rel_path)
+    except Exception:
+        record_write_failure("keyword_write")
+
+    # 增量索引（失败后台全量重建）
+    try:
+        main.search_engine.add_to_index(rel_path, final_content, dept, module)
+    except Exception:
+        def _rebuild():
+            try:
+                import shutil
+                cache_dir = settings.RUNTIME_DIR / "cache"
+                for f in cache_dir.glob("*"):
+                    if f.is_file():
+                        f.unlink()
+                main.search_engine = type(main.search_engine)()
+                main.search_engine.load_all()
+            except Exception:
+                pass
+        threading.Thread(target=_rebuild, daemon=True).start()
+
+    return {"ok": True, "path": rel_path, "filename": safe_name, "dept": dept, "module": module}
+
+
+@router.post("/document/upload")
+async def upload_document(body: UploadBody, user: str = Depends(verify_token)):
+    """上传文档（POST JSON body）"""
+    result = await _upload_document(body.filename, body.content, body.dept, body.module)
+    if "error" in result:
+        return JSONResponse(result, status_code=422)
+    return result
+
+
+@router.get("/document/upload")
+async def upload_document_get(
+    filename: str = Query(""),
+    content: str = Query(""),
+    dept: str = Query(""),
+    module: str = Query(""),
+    user: str = Depends(verify_token),
+):
+    """上传文档（GET query，兼容旧客户端）"""
+    result = await _upload_document(filename, content, dept, module)
+    if "error" in result:
+        return JSONResponse(result, status_code=422)
+    return result

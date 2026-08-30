@@ -66,7 +66,13 @@ class DBRepository(KnowledgeRepository):
         self._init_schema()
 
     def _init_schema(self):
-        """初始化数据库表结构"""
+        """初始化数据库表结构
+
+        - PostgreSQL：Schema 由 config/migrations/ 管理（psql 应用），此处不做任何建表
+        - SQLite（回退模式）：执行 config/schema.sql 建表
+        """
+        if "postgresql" in self.db_url:
+            return
         schema_file = PROJECT_DIR / "config" / "schema.sql"
         if schema_file.exists():
             schema_sql = schema_file.read_text(encoding="utf-8")
@@ -243,8 +249,13 @@ class DBRepository(KnowledgeRepository):
             })
         return dict(keyword_map)
 
-    def add_keyword(self, keyword: str, module_id: int, dept_id: int, dept: str = "") -> dict:
-        """新增关键词+映射，返回 {keyword_id, mapping_id}"""
+    def add_keyword(self, keyword: str, module_id: int, dept_id: int, dept: str = "",
+                    kb_path: str = "") -> dict:
+        """新增关键词+映射，返回 {keyword_id, mapping_id}
+
+        - 关键词实体已存在（含软删除）时复活并刷新时间
+        - 存活映射存在时复活该映射而非新增重复行（部分唯一索引 uq_km_kw_mod_active）
+        """
         now = datetime.now().isoformat()
         # 外键字段 0 → NULL，避免违反外键约束
         module_id = module_id or None
@@ -259,21 +270,39 @@ class DBRepository(KnowledgeRepository):
         keyword_id = row["id"] if row else None
         if not keyword_id:
             return {"error": "关键词写入失败"}
-        # INSERT 映射
-        self._execute_write(
-            "INSERT INTO keyword_mappings (keyword_id, module_id, department_id, department, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (keyword_id, module_id, dept_id, dept, now, now)
-        )
+        # 映射：复活式 upsert（部分唯一索引仅约束存活行；module_id 为 NULL 时不冲突，允许共存）
+        try:
+            self._execute_write(
+                "INSERT INTO keyword_mappings "
+                "(keyword_id, module_id, department_id, department, kb_path, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT (keyword_id, module_id) WHERE is_deleted = FALSE DO UPDATE SET "
+                "is_deleted = FALSE, department_id = EXCLUDED.department_id, "
+                "department = EXCLUDED.department, kb_path = EXCLUDED.kb_path, updated_at = ?",
+                (keyword_id, module_id, dept_id, dept, kb_path, now, now, now)
+            )
+        except Exception as e:
+            # 部分唯一索引不存在等兼容场景：退回普通 INSERT（重复行风险由迁移脚本治理）
+            self._execute_write(
+                "INSERT INTO keyword_mappings "
+                "(keyword_id, module_id, department_id, department, kb_path, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (keyword_id, module_id, dept_id, dept, kb_path, now, now)
+            )
         mapping_id = self._execute_one(
-            "SELECT id FROM keyword_mappings WHERE keyword_id = ? AND module_id = ? ORDER BY id DESC LIMIT 1",
+            "SELECT id FROM keyword_mappings WHERE keyword_id = ? AND module_id IS NOT DISTINCT FROM ? "
+            "ORDER BY id DESC LIMIT 1",
             (keyword_id, module_id)
         )
         return {"keyword_id": keyword_id, "mapping_id": mapping_id["id"] if mapping_id else None}
 
     def update_keyword(self, mapping_id: int, keyword: str = None, module_id: int = None,
-                       dept_id: int = None, dept: str = None) -> bool:
-        """更新关键词映射（通过 mapping_id 定位）"""
+                       dept_id: int = None, dept: str = None) -> dict:
+        """更新关键词映射（通过 mapping_id 定位，全量覆盖语义）
+
+        - keyword 改名撞 UNIQUE 时返回 {"error": "关键词已存在"}
+        - module_id/dept_id/dept 传 None 表示清空（0 也会转为 NULL）
+        """
         now = datetime.now().isoformat()
         # 先获取当前记录
         current = self._execute_one(
@@ -281,35 +310,32 @@ class DBRepository(KnowledgeRepository):
             (mapping_id,)
         )
         if not current:
-            return False
+            return {"error": "映射不存在或已删除"}
         keyword_id = current["keyword_id"]
         # 如果 keyword 文本变了，更新 keywords_v2 表
         if keyword:
-            self._execute_write(
-                "UPDATE keywords_v2 SET keyword = ?, updated_at = ? WHERE id = ?",
-                (keyword, now, keyword_id)
-            )
-        # 更新映射记录
-        fields = ["updated_at = ?"]
-        params = [now]
-        if module_id is not None:
-            fields.append("module_id = ?")
-            params.append(module_id)
-        if dept_id is not None:
-            fields.append("department_id = ?")
-            params.append(dept_id)
-        if dept is not None:
-            fields.append("department = ?")
-            params.append(dept)
-        params.append(mapping_id)
+            try:
+                self._execute_write(
+                    "UPDATE keywords_v2 SET keyword = ?, updated_at = ? WHERE id = ?",
+                    (keyword, now, keyword_id)
+                )
+            except Exception:
+                # 唯一约束冲突（新词已存在）
+                return {"error": "关键词已存在"}
+        # 更新映射记录（全量覆盖：None/0 → NULL，支持清空外键）
         self._execute_write(
-            f"UPDATE keyword_mappings SET {', '.join(fields)} WHERE id = ?",
-            params
+            "UPDATE keyword_mappings SET module_id = ?, department_id = ?, department = ?, updated_at = ? "
+            "WHERE id = ?",
+            (module_id or None, dept_id or None, dept or "", now, mapping_id)
         )
-        return True
+        return {"ok": True}
 
     def delete_mapping(self, mapping_id: int) -> bool:
-        """软删除一条关键词映射"""
+        """软删除一条关键词映射（不存在/已删返回 False）"""
+        exists = self._execute_one(
+            "SELECT id FROM keyword_mappings WHERE id = ? AND is_deleted = FALSE", (mapping_id,))
+        if not exists:
+            return False
         now = datetime.now().isoformat()
         self._execute_write(
             "UPDATE keyword_mappings SET is_deleted = TRUE, updated_at = ? WHERE id = ?",
@@ -318,7 +344,11 @@ class DBRepository(KnowledgeRepository):
         return True
 
     def delete_keyword(self, keyword_id: int) -> bool:
-        """软删除关键词及其所有映射"""
+        """软删除关键词及其所有映射（不存在/已删返回 False）"""
+        exists = self._execute_one(
+            "SELECT id FROM keywords_v2 WHERE id = ? AND is_deleted = FALSE", (keyword_id,))
+        if not exists:
+            return False
         now = datetime.now().isoformat()
         self._execute_write(
             "UPDATE keywords_v2 SET is_deleted = TRUE, updated_at = ? WHERE id = ?",
@@ -564,15 +594,18 @@ class DBRepository(KnowledgeRepository):
 
     # ══════ FAQ CRUD ══════
 
-    def save_faq(self, faq: FAQ) -> str:
-        """保存 FAQ：数据库为主，文件同步为辅"""
+    def save_faq(self, faq: FAQ, write_file: bool = True) -> str:
+        """保存 FAQ：数据库为主，文件同步为辅
+
+        write_file=False：仅写数据库，文件由路由层负责（避免 title.md 与 faq_code.md 双文件）
+        """
         # 1. 写入数据库（primary）
         tags_list = faq.tags if isinstance(faq.tags, list) else []
         related_json = json.dumps(faq.related, ensure_ascii=False) if faq.related else "[]"
         tickets_json = json.dumps(faq.tickets, ensure_ascii=False) if faq.tickets else "[]"
         now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-        self._execute("""
+        self._execute_write("""
             INSERT INTO faqs
             (faq_code, faq_title, faq_question, faq_answer, content, category_id,
              dept, sub_module, module, scene, tags, status, sort_num, view_count,
@@ -609,7 +642,7 @@ class DBRepository(KnowledgeRepository):
             "faq_question": faq.faq_question,
             "faq_answer": faq.faq_answer,
             "content": faq.content,
-            "category_id": faq.category_id or 0,
+            "category_id": faq.category_id or None,  # 0 → NULL，避免违反外键
             "dept": faq.dept,
             "sub_module": faq.sub_module,
             "module": faq.module,
@@ -627,17 +660,18 @@ class DBRepository(KnowledgeRepository):
             "update_user": faq.update_user,
             "create_time": faq.create_time or now,
             "update_time": now,
-            "is_deleted": faq.is_deleted,
+            "is_deleted": bool(faq.is_deleted),  # PG BOOLEAN 类型
         })
 
-        # 2. 同步写文件（backup）
-        dept_dir = get_dept_path(faq.dept) or "fin-tech"
-        sub_dir = get_submodule_path(faq.sub_module) or get_submodule_path(faq.module) or "other"
-        target_dir = DATA_DIR / "faq" / dept_dir / sub_dir
-        target_dir.mkdir(parents=True, exist_ok=True)
-        filename = f"{faq.faq_code}.md" if faq.faq_code else f"{faq.faq_title}.md"
-        file_path = target_dir / filename
-        content = f"""---
+        # 2. 同步写文件（backup）—— write_file=False 时由路由层负责文件写入
+        if write_file:
+            dept_dir = get_dept_path(faq.dept) or "fin-tech"
+            sub_dir = get_submodule_path(faq.sub_module) or get_submodule_path(faq.module) or "other"
+            target_dir = DATA_DIR / "faq" / dept_dir / sub_dir
+            target_dir.mkdir(parents=True, exist_ok=True)
+            filename = f"{faq.faq_code}.md" if faq.faq_code else f"{faq.faq_title}.md"
+            file_path = target_dir / filename
+            content = f"""---
 id: {faq.faq_code}
 title: {faq.faq_title}
 keywords: {json.dumps(faq.tags, ensure_ascii=False)}
@@ -655,10 +689,11 @@ tickets: {json.dumps(faq.tickets, ensure_ascii=False) if faq.tickets else '[]'}
 
 {faq.faq_answer}
 """
-        file_path.write_text(content, encoding="utf-8")
-        rel_path = str(file_path.relative_to(PROJECT_DIR))
-        self._execute_write("UPDATE faqs SET file_path = ? WHERE faq_code = ?", (rel_path, faq.faq_code))
-        return rel_path
+            file_path.write_text(content, encoding="utf-8")
+            rel_path = str(file_path.relative_to(PROJECT_DIR))
+            self._execute_write("UPDATE faqs SET file_path = ? WHERE faq_code = ?", (rel_path, faq.faq_code))
+            return rel_path
+        return faq.path
 
     def delete_faq(self, path: str) -> bool:
         """逻辑删除 FAQ：is_deleted = TRUE"""
@@ -690,7 +725,7 @@ tickets: {json.dumps(faq.tickets, ensure_ascii=False) if faq.tickets else '[]'}
             existing = self._execute_one("SELECT id FROM faqs WHERE faq_code = ?", (faq.faq_code,))
             if existing:
                 continue
-            self._execute("""
+            self._execute_write("""
                 INSERT INTO faqs (faq_code, faq_title, faq_question, faq_answer, content,
                 dept, sub_module, module, scene, tags, status, source_file_name, file_path,
                 version_from, create_time, update_time)
@@ -717,21 +752,20 @@ tickets: {json.dumps(faq.tickets, ensure_ascii=False) if faq.tickets else '[]'}
             })
             imported += 1
         return imported
-        return False
 
     # ══════ Feedback (数据库) ══════
 
     def save_feedback(self, query: str, result_id: str, result_path: str, feedback_type: str) -> None:
-        self._execute(
+        self._execute_write(
             "INSERT INTO feedback (query, result_id, result_path, type) VALUES (?, ?, ?, ?)",
             (query, result_id, result_path, feedback_type)
         )
 
         # 更新统计
         key = f"feedback_{feedback_type}"
-        self._execute(
+        self._execute_write(
             "INSERT INTO search_counter (key, value) VALUES (?, 1) "
-            "ON CONFLICT(key) DO UPDATE SET value = value + 1",
+            "ON CONFLICT(key) DO UPDATE SET value = search_counter.value + 1",
             (key,)
         )
 
@@ -744,9 +778,9 @@ tickets: {json.dumps(faq.tickets, ensure_ascii=False) if faq.tickets else '[]'}
         return row["value"] if row else 0
 
     def increment_counter(self, key: str) -> None:
-        self._execute(
+        self._execute_write(
             "INSERT INTO search_counter (key, value) VALUES (?, 1) "
-            "ON CONFLICT(key) DO UPDATE SET value = value + 1",
+            "ON CONFLICT(key) DO UPDATE SET value = search_counter.value + 1",
             (key,)
         )
 
@@ -765,7 +799,7 @@ tickets: {json.dumps(faq.tickets, ensure_ascii=False) if faq.tickets else '[]'}
         primary_dept_id: 主部门ID（可选，默认取末级最具体的部门）
         """
         # 删除旧关联
-        self._execute(
+        self._execute_write(
             "DELETE FROM document_departments WHERE document_path = ?", (doc_path,)
         )
         if not dept_ids:
@@ -776,7 +810,7 @@ tickets: {json.dumps(faq.tickets, ensure_ascii=False) if faq.tickets else '[]'}
 
         now = __import__('datetime').datetime.now().isoformat()
         for did in dept_ids:
-            self._execute(
+            self._execute_write(
                 """INSERT INTO document_departments
                    (document_path, department_id, is_primary, source, updated_at)
                    VALUES (:path, :did, :primary, 'manual', :now)

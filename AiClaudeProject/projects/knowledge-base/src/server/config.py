@@ -2,6 +2,28 @@
 import os
 from pathlib import Path
 
+# 项目根目录（config.py 位于 src/server/ 下）
+_PROJECT_DIR = Path(__file__).resolve().parent.parent.parent
+
+
+def _load_env():
+    """启动时加载项目根目录 .env（已存在的环境变量优先，不覆盖）"""
+    env_file = _PROJECT_DIR / ".env"
+    if not env_file.exists():
+        return
+    with open(env_file, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key, val = key.strip(), val.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = val
+
+
+_load_env()
+
 
 class Settings:
     # 数据库

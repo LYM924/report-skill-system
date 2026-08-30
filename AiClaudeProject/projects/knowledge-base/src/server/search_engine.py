@@ -690,6 +690,32 @@ class SearchEngine:
             })
             self.bm25.save(str(self.bm25_cache_file))
 
+    def reload_faqs(self):
+        """FAQ 保存/删除后重建 FAQ 相关内存结构与 BM25 索引（不重建向量，向量另行异步重建）"""
+        self.faq_docs = []
+        self._load_faq_knowledge()
+        # 重建 kb_docs 中的 FAQ 部分
+        self.kb_docs = [d for d in self.kb_docs if not str(d.get('path', '')).startswith('data/faq/')]
+        for faq in self.faq_docs:
+            self.kb_docs.append({
+                "path": faq.get('path', ''),
+                "dept": faq.get('dept', ''),
+                "domain": faq.get('sub_module', '') or faq.get('module', ''),
+                "title": f"[FAQ] {faq.get('title', '')}",
+                "content_sample": (faq.get('content_sample', '') or '')[:5000],
+                "keywords": faq.get('keywords', []),
+            })
+        if self.bm25_cache_file.exists():
+            self.bm25_cache_file.unlink()
+        self._load_bm25_index()
+
+    def rebuild_vector_index_async(self):
+        """删除向量缓存并全量重建（耗时操作，调用方需放入后台线程执行）"""
+        for f in (self.vector_index_file, self.vector_meta_file):
+            if f.exists():
+                f.unlink()
+        self._load_vector_index()
+
     def _load_vector_index(self):
         """加载或构建向量索引"""
         self.vector = VectorIndex()

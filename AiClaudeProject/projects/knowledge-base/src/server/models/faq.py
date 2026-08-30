@@ -36,17 +36,9 @@ class FAQ(Base):
     is_deleted: Mapped[int] = mapped_column(Integer, default=0)
 
 
-class Keyword(Base):
-    __tablename__ = "keywords"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    keyword: Mapped[str] = mapped_column(String(200), nullable=False)
-    module_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    department: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    domain: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
-    kb_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    note: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-
+# 注意：旧 keywords 表已删除（见 config/migrations 与 git 7c5d812），
+# 关键词现由 keywords_v2 + keyword_mappings 管理（repository/db_repo.py 直接 SQL）。
+# SQLAlchemy 模型仅作结构参考，Schema 演进统一走 config/migrations/。
 
 class Synonym(Base):
     __tablename__ = "synonyms"
