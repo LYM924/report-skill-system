@@ -18,7 +18,6 @@ Confluence 周报数据同步脚本
 import json
 import os
 import re
-import sqlite3
 import sys
 from pathlib import Path
 from datetime import datetime
@@ -28,9 +27,7 @@ from urllib.parse import urlencode
 HERE = Path(__file__).resolve().parent
 PROJECT_DIR = HERE.parent.parent  # knowledge-base/
 DATA_DIR = PROJECT_DIR / "data"
-REPORTS_DIR = DATA_DIR / "reports" / "周报"
-RUNTIME_DIR = PROJECT_DIR / "runtime"
-DB_PATH = RUNTIME_DIR / "knowledge.db"
+REPORTS_DIR = DATA_DIR / "reports" / "weekly"  # 与现有报表目录一致
 
 # 从环境变量读取配置
 CONFLUENCE_BASE = os.environ.get("CONFLUENCE_BASE_URL", "https://cf.cai-inc.com")
@@ -84,31 +81,28 @@ def confluence_html_to_md(html):
 
 
 def save_to_db(title, content, week, year, category, path):
-    """保存到数据库"""
-    db = sqlite3.connect(str(DB_PATH))
-    db.row_factory = sqlite3.Row
+    """保存到数据库（DBRepository 按 .env 自动走 PostgreSQL）"""
+    from repository import DBRepository
+    repo = DBRepository()
 
     # 检查是否已存在
-    existing = db.execute("SELECT id FROM reports WHERE path = ?", (path,)).fetchone()
+    existing = repo._execute_one("SELECT id FROM reports WHERE path = ?", (path,))
     if existing:
-        db.execute("""
-            UPDATE reports SET title=?, content=?, week=?, year=?, category=?, dept_summary=?
-            WHERE id=?
-        """, (title, content, week, year, category, content[:500], existing["id"]))
+        repo._execute_write(
+            "UPDATE reports SET title=?, content=?, week=?, year=?, category=?, "
+            "dept_summary=CAST(? AS JSONB), updated_at=NOW() WHERE id=?",
+            (title, content, week, year, category, "{}", existing["id"]))
     else:
-        db.execute("""
-            INSERT INTO reports (title, week, year, category, content, path, dept_summary)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (title, week, year, category, content, path, content[:500]))
-
-    db.commit()
-    db.close()
+        repo._execute_write(
+            "INSERT INTO reports (title, week, year, category, content, path, dept_summary) "
+            "VALUES (?, ?, ?, ?, ?, ?, CAST(? AS JSONB))",
+            (title, week, year, category, content, path, "{}"))
 
 
 def save_to_file(title, content, week, year):
-    """保存为 .md 文件"""
+    """保存为 .md 文件（目录 data/reports/weekly/，与现有报表一致）"""
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    filename = f"{year}-W{week}-技术支持周报.md"
+    filename = f"{year}-w{week}-技术支持周报.md"
     filepath = REPORTS_DIR / filename
     filepath.write_text(content, encoding="utf-8")
     return str(filepath)
@@ -168,7 +162,7 @@ def main():
 
                 # 保存到文件
                 filepath = save_to_file(title, content, week, year)
-                rel_path = f"data/reports/周报/{year}-W{week}-技术支持周报.md"
+                rel_path = f"data/reports/weekly/{year}-w{week}-技术支持周报.md"
 
                 # 保存到数据库
                 save_to_db(title, content, week, year, category, rel_path)
@@ -180,7 +174,8 @@ def main():
     else:
         print(f"\n✅ 同步完成，共 {count} 个报表")
         print(f"   文件: {REPORTS_DIR}")
-        print(f"   数据库: {DB_PATH}")
+        print(f"   数据库: PostgreSQL（按 .env DATABASE_URL_SYNC）")
+        print("   ⚠️ 提示：同步后请在 Web 界面执行「知识管理→重建索引」或重启服务，报表浏览才会更新")
 
 
 if __name__ == "__main__":

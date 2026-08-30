@@ -40,6 +40,14 @@ TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login \
 AUTH_TOKEN="$TOKEN" ./scripts/smoke_test.sh localhost:8000 --write
 ```
 
+## Docker 部署注意事项
+
+- Dockerfile 已修复为正确构建（依赖清单路径、包导入、单 worker）。
+- 容器内 `.env` 的 `DATABASE_URL_SYNC` 需指向容器服务名：
+  `postgresql+psycopg2://kb_user:kb_pass@postgres:5432/knowledge_base`
+  （本机直连与容器部署的 .env 不通用，切换时注意修改）
+- 数据库数据不会自动进入容器：首次部署需将 `backups/*.dump` 导入容器 PG。
+
 ## 健康检查
 
 `GET /api/health`（需 token）：数据源类型、引擎状态、Schema 契约校验（列存在性/唯一索引）、写失败计数、行数概要。

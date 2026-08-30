@@ -60,9 +60,6 @@ class DBRepository(KnowledgeRepository):
     def __init__(self, db_url=None):
         self.db_url = db_url or _get_db_url()
         self.engine = create_engine(self.db_url, echo=False, pool_pre_ping=True)
-        # 兼容旧代码（search_server.py）：提供 .db 属性，返回 engine 自身
-        # engine.execute() 在 SQLAlchemy 2.0 中已废弃但仍可用
-        self.db = self.engine
         self._init_schema()
 
     def _init_schema(self):
