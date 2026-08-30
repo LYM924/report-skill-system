@@ -7,7 +7,14 @@ _PROJECT_DIR = Path(__file__).resolve().parent.parent.parent
 
 
 def _load_env():
-    """启动时加载项目根目录 .env（已存在的环境变量优先，不覆盖）"""
+    """启动时加载项目根目录 .env
+
+    规则：.env 中**非空**的值优先（覆盖 shell 继承的环境变量），
+    空值跳过（不覆盖继承的有效值）。
+    背景：shell 里可能有其他工具遗留的变量（如 CLAUDE_MODEL=glm-5.1）污染服务进程，
+    项目自己的 .env 必须能纠正它；同时 .env 中留空的密钥（如 ANTHROPIC_AUTH_TOKEN=）
+    不应清掉 shell 注入的有效值。
+    """
     env_file = _PROJECT_DIR / ".env"
     if not env_file.exists():
         return
@@ -18,7 +25,7 @@ def _load_env():
                 continue
             key, _, val = line.partition("=")
             key, val = key.strip(), val.strip().strip('"').strip("'")
-            if key and key not in os.environ:
+            if key and (key not in os.environ or val):
                 os.environ[key] = val
 
 

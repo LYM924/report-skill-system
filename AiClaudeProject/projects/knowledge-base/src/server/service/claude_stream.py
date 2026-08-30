@@ -20,7 +20,18 @@ def _client_kwargs():
 
 
 def default_model() -> str:
-    return os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-20250514")
+    """模型选择链路：KB_CLAUDE_MODEL → CLAUDE_MODEL → ANTHROPIC_DEFAULT_SONNET_MODEL
+    → ANTHROPIC_MODEL → 默认值。剥离 [1m] 等会话后缀。"""
+    raw = (
+        os.environ.get("KB_CLAUDE_MODEL")
+        or os.environ.get("CLAUDE_MODEL")
+        or os.environ.get("ANTHROPIC_DEFAULT_SONNET_MODEL")
+        or os.environ.get("ANTHROPIC_MODEL")
+        or "claude-sonnet-4-20250514"
+    )
+    # 剥离 Claude Code 会话模型 ID 的 [N] 后缀（如 deepseek-v4-pro[1m]）
+    import re
+    return re.sub(r"\[.*?\]", "", raw).strip()
 
 
 def has_credentials() -> bool:
