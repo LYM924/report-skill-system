@@ -131,17 +131,23 @@ PYEOF
       --data-binary @/tmp/smoke_upload.json "$BASE/api/document/upload")
     UP_PATH=$(echo "$UP_RESP" | python3 -c "import sys,json;print(json.load(sys.stdin).get('path',''))" 2>/dev/null)
     if [ -n "$UP_PATH" ] && [ -f "$KB_DIR/$UP_PATH" ]; then
-      if python3 - "$KB_DIR/$UP_PATH" <<'PYEOF'
+      if python3 - "$KB_DIR" "$UP_PATH" <<'PYEOF'
 import sys
-text = open(sys.argv[1], encoding='utf-8').read()
+kb_dir, up_path = sys.argv[1], sys.argv[2]
+text = open(f'{kb_dir}/{up_path}', encoding='utf-8').read()
 assert '版本迭代时间线【总目录】' in text, '总目录缺失'
 assert '<br>' not in text, '残留 <br>'
 assert '\\-' not in text, '残留 \\-'
 assert '## 双向链接' in text, '双向链接缺失'
-print('格式断言通过')
+# documents 表行必须真实存在（曾出现 INSERT 占位符错误导致行缺失、视图不可见）
+sys.path.insert(0, f'{kb_dir}/src/server')
+from repository.db_repo import DBRepository
+row = DBRepository()._execute_one('SELECT id FROM documents WHERE path = ?', (up_path,))
+assert row, 'documents 行缺失（视图将不可见）'
+print('格式断言通过（含 documents 行校验）')
 PYEOF
       then
-        PASS=$((PASS+1)); echo "  ✅ 上传格式回归（总目录/<br>/\\-/双向链接）"
+        PASS=$((PASS+1)); echo "  ✅ 上传格式回归（总目录/<br>/\\-/双向链接/documents行）"
       else
         FAIL=$((FAIL+1)); FAILED_NAMES+=("上传格式回归"); echo "  ❌ 上传格式回归（断言失败）"
       fi

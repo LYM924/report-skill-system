@@ -6,6 +6,7 @@
 import ast
 import datetime
 import json
+import logging
 import os
 import re
 import threading
@@ -490,6 +491,8 @@ async def _upload_document(filename: str, content: str, dept: str, module: str) 
 
     if not content or not content.strip():
         return {"error": "content 必填"}
+    # 清理 NUL 字节：PG text 字段拒绝 \x00，会导致 documents 写入静默失败（文档不可见）
+    content = content.replace("\x00", "")
     dept = dept or "数智财务组"
     module = module or "浙里报"
 
@@ -603,7 +606,7 @@ imported: {now_iso}
         repo._execute_write(
             "INSERT INTO documents "
             "(path, filename, title, content, dept, dept_id, module, module_id, product, product_line, date, keywords, imported_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, now(), now()) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, now(), now()) "
             "ON CONFLICT (path) DO UPDATE SET "
             "filename = EXCLUDED.filename, title = EXCLUDED.title, content = EXCLUDED.content, "
             "dept = EXCLUDED.dept, dept_id = EXCLUDED.dept_id, module = EXCLUDED.module, "
@@ -614,7 +617,13 @@ imported: {now_iso}
         )
         if d_id:
             repo.set_document_departments(rel_path, [d_id])
-    except Exception:
+        # 回读校验：documents 行必须真实存在，否则文档在视图里永远不可见
+        if not repo._execute_one("SELECT id FROM documents WHERE path = ?", (rel_path,)):
+            logging.getLogger(__name__).error("documents 行回读校验失败: %s", rel_path)
+            record_write_failure("document_write_verify")
+    except Exception as e:
+        # 记录异常详情——此前静默吞掉导致用户上传后文档不可见且无日志可查
+        logging.getLogger(__name__).error("documents 写入失败 path=%s: %s", rel_path, e)
         record_write_failure("document_write")
 
     # 增量索引 + 内存 kb_docs（失败后台全量重建，重建会从 documents 表读回该文档）
