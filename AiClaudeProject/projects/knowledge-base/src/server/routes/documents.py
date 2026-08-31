@@ -371,6 +371,96 @@ async def update_document(
     return {"ok": True, "path": str(full_path.relative_to(settings.PROJECT_DIR)), "renamed": renamed}
 
 
+def _body_is_intact(body: str, final: str) -> bool:
+    """校验正文在重排后逐行完整保留（顺序不变，仅允许注入区块穿插）。
+
+    文档格式允许转换，但正文内容一行都不能丢——此为硬性保证，
+    校验失败时调用方必须退回"原内容不动"的兜底模板。
+    """
+    body_lines = [l.rstrip() for l in body.split("\n") if l.strip()]
+    it = iter(final.split("\n"))
+    try:
+        for bl in body_lines:
+            while True:
+                if next(it).rstrip() == bl:
+                    break
+        return True
+    except StopIteration:
+        return False
+
+
+def _slugify(text: str) -> str:
+    """生成 GitHub 风格锚点（中文保留，空格转 -，去掉常见标点）"""
+    slug = text.strip()
+    for ch in "（）()【】[]·、，。：:；;！!？?\"'‘’“”":
+        slug = slug.replace(ch, "")
+    return slug.replace(" ", "-").replace("/", "-")
+
+
+def _format_kb_document(title: str, dept: str, module: str, product: str, product_line: str,
+                        body: str, kw_list: list, today: str, rel_prefix: str) -> str:
+    """按统一规范组装知识库文档：frontmatter + 字段表 + 目录 + 关键词 + 正文 + 双向链接
+
+    规范见 SKILL.md「原始文档 → 知识库转换规范」，字段表格式对齐存量文档（例：
+    智慧门诊-20251113-免疫规划-智慧门诊.md），双向链接按文件位置计算相对路径。
+    """
+    # 目录：正文 H2/H3 大纲
+    outline = []
+    for line in body.split("\n"):
+        if line.startswith("### "):
+            heading = line[4:].strip()
+            outline.append(f"- [{heading}](#{_slugify(heading)})")
+        elif line.startswith("## "):
+            heading = line[3:].strip()
+            outline.append(f"- [{heading}](#{_slugify(heading)})")
+    outline_md = "\n".join(outline) if outline else "（正文无标题章节）"
+
+    kw_md = " ".join(f"`{k}`" for k in kw_list) if kw_list else "（无）"
+    now = datetime.datetime.now().isoformat()
+    return f"""---
+title: {title}
+dept: {dept}
+dept3: {dept}
+module: {module}
+product: {product}
+product_line: {product_line}
+date: {today}
+keywords: {json.dumps(kw_list, ensure_ascii=False)}
+appendix: ""
+related_modules: []
+imported: {now}
+---
+
+# {title}
+
+| 字段 | 值 |
+|------|-----|
+| 所属部门 | {dept} |
+| 产品模块 | {module} |
+| 所属产品 | {product} |
+| 所属产品线 | {product_line} |
+| 附录 |  |
+
+## 目录
+
+{outline_md}
+
+## 关键词
+
+{kw_md}
+
+{body.strip()}
+
+## 双向链接
+
+| 链接类型 | 目标 |
+|---------|------|
+| 📇 关键词索引 | [关键词索引]({rel_prefix}/ProjectSkill/projects/共享模块中心/关键词库/关键词索引.md) |
+| 📁 模块文件 | [共享模块中心/{dept}/{module}/]({rel_prefix}/ProjectSkill/projects/共享模块中心/{dept}/{module}/) |
+| 📊 报表 | [2026报表数据知识库/]({rel_prefix}/2026报表数据知识库/) |
+"""
+
+
 async def _upload_document(filename: str, content: str, dept: str, module: str) -> dict:
     """上传文档公共逻辑（POST JSON / GET query 共用）"""
     from keyword_extractor import get_extractor, build_extractor_idf
@@ -387,12 +477,26 @@ async def _upload_document(filename: str, content: str, dept: str, module: str) 
     if not safe_name.endswith(".md"):
         safe_name += ".md"
 
-    # 标题：H1 提取
+    # 剥离原 frontmatter（如有），正文统一由模板重排
+    body = content
+    if content.strip().startswith("---"):
+        parts = content.split("---", 2)
+        if len(parts) >= 3:
+            body = parts[2]
+    # 标题：正文首个 H1（提取后从正文移除，由模板统一生成主标题）
     title = safe_name.replace(".md", "")
-    for line in content.split("\n"):
+    body_lines = body.split("\n")
+    for i, line in enumerate(body_lines):
         if line.startswith("# ") and not line.startswith("## "):
             title = line[2:].strip()
+            body_lines = body_lines[:i] + body_lines[i + 1:]
             break
+    body = "\n".join(body_lines).strip("\n")
+    # 剩余 H1 降级为 H2（统一单 H1 结构，对齐例A：主标题下均为 ## 章节）
+    body = "\n".join(
+        f"##{line[1:]}" if line.startswith("# ") else line
+        for line in body.split("\n")
+    )
 
     # 关键词：自动提取（TF-IDF+TextRank），不足 5 个用关键词索引在正文中兜底
     kw_list = []
@@ -410,32 +514,47 @@ async def _upload_document(filename: str, content: str, dept: str, module: str) 
             if len(kw_list) >= 10:
                 break
 
-    # 路径与写入
+    # 路径
     dept_dir = get_dept_path(dept) or "other"
     module_dir = get_submodule_path(module) or "other"
     target_dir = settings.DATA_DIR / "knowledge" / dept_dir / module_dir
     target_dir.mkdir(parents=True, exist_ok=True)
     file_path = target_dir / safe_name
 
-    has_fm = content.strip().startswith("---")
+    # 产品/产品线：从模块表自动解析（模块 → 产品 → 产品线）
     today = datetime.date.today().strftime("%Y%m%d")
-    if has_fm:
-        final_content = content
-    else:
+    mod_info = _get_module_map().get(module, {})
+    product = mod_info.get("product", "")
+    product_line = mod_info.get("product_line", "")
+
+    # 统一模板组装（frontmatter + 字段表 + 目录 + 关键词 + 正文 + 双向链接）
+    # 双向链接目标（ProjectSkill、2026报表数据知识库）位于 AiClaudeProject/ 下，
+    # 相对路径以 AiClaudeProject 根为基准计算
+    ai_root = settings.PROJECT_DIR.parent.parent  # AiClaudeProject/
+    rel_prefix = os.path.relpath(ai_root, target_dir).replace(os.sep, "/")
+    final_content = _format_kb_document(
+        title, dept, module, product, product_line, body, kw_list, today, rel_prefix
+    )
+    # 内容完整性兜底：正文任何一行丢失都禁止重排，退回"原内容原样"的最小模板
+    if not _body_is_intact(body, final_content):
+        now_iso = datetime.datetime.now().isoformat()
         final_content = f"""---
 title: {title}
 dept: {dept}
+dept3: {dept}
 module: {module}
-product: ""
-product_line: ""
+product: {product}
+product_line: {product_line}
 date: {today}
 keywords: {json.dumps(kw_list, ensure_ascii=False)}
 appendix: ""
 related_modules: []
+imported: {now_iso}
 ---
 
 {content}
 """
+        record_write_failure("content_integrity_fallback")
     file_path.write_text(final_content, encoding="utf-8")
     rel_path = str(file_path.relative_to(settings.PROJECT_DIR))
 
@@ -452,19 +571,18 @@ related_modules: []
     # 写 documents 表 + 部门关联。
     # kb_docs 由 _load_knowledge_base 从 documents 表优先加载（有数据时不扫文件系统），
     # 部门知识库视图按 document_departments 过滤——不写这两处，上传的文档任何视图都看不到。
-    mod_info = _get_module_map().get(module, {})
     try:
         repo._execute_write(
             "INSERT INTO documents "
-            "(path, filename, title, content, dept, dept_id, module, module_id, product, date, keywords, imported_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, now(), now()) "
+            "(path, filename, title, content, dept, dept_id, module, module_id, product, product_line, date, keywords, imported_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, now(), now()) "
             "ON CONFLICT (path) DO UPDATE SET "
             "filename = EXCLUDED.filename, title = EXCLUDED.title, content = EXCLUDED.content, "
             "dept = EXCLUDED.dept, dept_id = EXCLUDED.dept_id, module = EXCLUDED.module, "
-            "module_id = EXCLUDED.module_id, product = EXCLUDED.product, date = EXCLUDED.date, "
-            "keywords = EXCLUDED.keywords, updated_at = now()",
+            "module_id = EXCLUDED.module_id, product = EXCLUDED.product, product_line = EXCLUDED.product_line, "
+            "date = EXCLUDED.date, keywords = EXCLUDED.keywords, updated_at = now()",
             (rel_path, safe_name, title, final_content, dept, d_id, module, m_id,
-             mod_info.get("product", ""), today, kw_list)
+             product, product_line, today, kw_list)
         )
         if d_id:
             repo.set_document_departments(rel_path, [d_id])
@@ -481,7 +599,7 @@ related_modules: []
                 "dept": dept,
                 "dept3": dept,
                 "domain": module,
-                "product": mod_info.get("product", ""),
+                "product": product,
                 "module": module,
                 "date": today,
                 "title": title,
