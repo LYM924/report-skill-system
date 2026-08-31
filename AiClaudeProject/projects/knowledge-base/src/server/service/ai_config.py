@@ -273,8 +273,12 @@ def test_ai_config(model: str, base_url: str, api_key: str, protocol: str = "ant
 
         try:
             resp = _ping({**base_kwargs, "auth_token": api_key})
-        except Exception:
-            resp = _ping({**base_kwargs, "api_key": api_key})
+        except anthropic.AuthenticationError:
+            # 部分网关只接受 x-api-key 头，仅鉴权失败时才回退（避免掩盖模型/网络等真实错误）
+            try:
+                resp = _ping({**base_kwargs, "api_key": api_key})
+            except Exception as e:
+                return {"ok": False, "error": str(e)[:300]}
         text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text").strip()
         return {"ok": True, "message": f"连接成功（模型响应: {text[:50] or 'ok'}）"}
     except Exception as e:

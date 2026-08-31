@@ -74,6 +74,10 @@ function SettingsCenter({ isDark }) {
       message.warning('请填写模型名');
       return;
     }
+    // 脱敏回显的 key（含 ****）视为未修改：传空 = 保留已保存的密钥
+    if ((values.api_key || '').includes('****')) {
+      values.api_key = '';
+    }
     setSaving(true);
     try {
       const resp = await authFetch('/api/config/ai', {
@@ -95,6 +99,10 @@ function SettingsCenter({ isDark }) {
 
   const handleTest = async () => {
     const values = form.getFieldsValue();
+    // 脱敏回显的 key 视为未修改：传空让后端用已保存的密钥测试
+    if ((values.api_key || '').includes('****')) {
+      values.api_key = '';
+    }
     setTesting(true);
     setTestResult(null);
     try {
