@@ -43,10 +43,11 @@ AUTH_TOKEN="$TOKEN" ./scripts/smoke_test.sh localhost:8000 --write
 ## Docker 部署注意事项
 
 - Dockerfile 已修复为正确构建（依赖清单路径、包导入、单 worker）。
-- 容器内 `.env` 的 `DATABASE_URL_SYNC` 需指向容器服务名：
-  `postgresql+psycopg2://kb_user:kb_pass@postgres:5432/knowledge_base`
-  （本机直连与容器部署的 .env 不通用，切换时注意修改）
+- docker-compose 已内置容器数据库地址覆盖（`DATABASE_URL_SYNC` 指向容器内
+  postgres 服务名），本机 .env 无需修改即可用于容器部署。
 - 数据库数据不会自动进入容器：首次部署需将 `backups/*.dump` 导入容器 PG。
+- 向量模型（sentence-transformers）首次启动会联网下载到容器内缓存；
+  离线环境向量召回不可用（BM25/关键词召回不受影响）。
 
 ## 健康检查
 

@@ -67,16 +67,19 @@ def _get_module_map():
 
 
 def _resolve_kw_ids(dept: str, sub_module: str, repo: DBRepository):
-    """解析关键词写入所需的 module_id/dept_id（NULL 安全）"""
+    """解析关键词写入所需的 module_id/dept_id（NULL 安全）
+
+    注意：dept_id 必须按用户选择的部门名解析，不能取自模块行的 department_id——
+    modules 表的部门关联是旧组织架构（如"合同"模块挂在乐采事业部），
+    与上传时用户选择的部门（电子卖场）不一致。
+    """
     module_id, dept_id = None, None
-    if sub_module:
-        row = repo._execute_one("SELECT id, department_id FROM modules WHERE name = ? LIMIT 1", (sub_module,))
-        if row:
-            module_id = row["id"]
-            dept_id = row["department_id"]
-    if not dept_id and dept:
+    if dept:
         row = repo._execute_one("SELECT id FROM departments WHERE name = ? LIMIT 1", (dept,))
         dept_id = row["id"] if row else None
+    if sub_module:
+        row = repo._execute_one("SELECT id FROM modules WHERE name = ? LIMIT 1", (sub_module,))
+        module_id = row["id"] if row else None
     return module_id, dept_id
 
 
@@ -140,10 +143,20 @@ async def list_documents(
 
         doc_title = doc.get("title", "")
         cat = {}
-        for mod_name, info in mod_map.items():
-            if mod_name in doc_title or mod_name in doc_path:
-                cat = info
-                break
+        # 优先用文档记录中的 module 名（documents 表），失败再按标题/路径子串匹配。
+        # 记录命中的模块名（module 过滤依赖它；原 cat 字典无 module 字段导致按模块查看永远为空）
+        doc_module = doc.get("module") or ""
+        if doc_module:
+            info = mod_map.get(doc_module)
+            if info:
+                cat = dict(info)
+                cat["module"] = doc_module
+        if not cat:
+            for mod_name, info in mod_map.items():
+                if mod_name in doc_title or mod_name in doc_path:
+                    cat = dict(info)
+                    cat["module"] = mod_name
+                    break
 
         name = doc_title or fm_title
         # 无意义标题（数字-数字-数字）时取 H1
@@ -166,7 +179,8 @@ async def list_documents(
             "id": doc_path,
             "name": name or doc_path.split("/")[-1],
             "path": doc_path,
-            "dept": cat.get("dept", doc.get("dept", "")),
+            # 部门优先取文档自身（documents 表/frontmatter），模块表的部门是旧组织架构（如合同→乐采事业部）
+            "dept": doc.get("dept") or cat.get("dept", ""),
             "product": cat.get("product", doc.get("domain", "")),
             "product_line": cat.get("product_line", ""),
             "module": cat.get("module", ""),
@@ -346,8 +360,10 @@ async def update_document(
                 for f in cache_dir.glob("*"):
                     if f.is_file():
                         f.unlink()
-                main.search_engine = type(main.search_engine)()
-                main.search_engine.load_all()
+                # 先完整构建新引擎，再原子替换，避免加载期间请求打到半成品引擎
+                new_engine = type(main.search_engine)()
+                new_engine.load_all()
+                main.search_engine = new_engine
         except Exception:
             pass
     threading.Thread(target=_rebuild, daemon=True).start()
@@ -425,6 +441,7 @@ related_modules: []
 
     # 关键词双表写入
     repo = DBRepository()
+    m_id, d_id = None, None
     try:
         m_id, d_id = _resolve_kw_ids(dept, module, repo)
         for kw in kw_list:
@@ -432,9 +449,45 @@ related_modules: []
     except Exception:
         record_write_failure("keyword_write")
 
-    # 增量索引（失败后台全量重建）
+    # 写 documents 表 + 部门关联。
+    # kb_docs 由 _load_knowledge_base 从 documents 表优先加载（有数据时不扫文件系统），
+    # 部门知识库视图按 document_departments 过滤——不写这两处，上传的文档任何视图都看不到。
+    mod_info = _get_module_map().get(module, {})
+    try:
+        repo._execute_write(
+            "INSERT INTO documents "
+            "(path, filename, title, content, dept, dept_id, module, module_id, product, date, keywords, imported_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, now(), now()) "
+            "ON CONFLICT (path) DO UPDATE SET "
+            "filename = EXCLUDED.filename, title = EXCLUDED.title, content = EXCLUDED.content, "
+            "dept = EXCLUDED.dept, dept_id = EXCLUDED.dept_id, module = EXCLUDED.module, "
+            "module_id = EXCLUDED.module_id, product = EXCLUDED.product, date = EXCLUDED.date, "
+            "keywords = EXCLUDED.keywords, updated_at = now()",
+            (rel_path, safe_name, title, final_content, dept, d_id, module, m_id,
+             mod_info.get("product", ""), today, kw_list)
+        )
+        if d_id:
+            repo.set_document_departments(rel_path, [d_id])
+    except Exception:
+        record_write_failure("document_write")
+
+    # 增量索引 + 内存 kb_docs（失败后台全量重建，重建会从 documents 表读回该文档）
     try:
         main.search_engine.add_to_index(rel_path, final_content, dept, module)
+        if main.search_engine is not None:
+            main.search_engine.kb_docs = [d for d in main.search_engine.kb_docs if d.get("path") != rel_path]
+            main.search_engine.kb_docs.append({
+                "path": rel_path,
+                "dept": dept,
+                "dept3": dept,
+                "domain": module,
+                "product": mod_info.get("product", ""),
+                "module": module,
+                "date": today,
+                "title": title,
+                "content_sample": final_content[:5000],
+                "keywords": kw_list,
+            })
     except Exception:
         def _rebuild():
             try:
@@ -443,8 +496,10 @@ related_modules: []
                 for f in cache_dir.glob("*"):
                     if f.is_file():
                         f.unlink()
-                main.search_engine = type(main.search_engine)()
-                main.search_engine.load_all()
+                # 先完整构建新引擎，再原子替换，避免加载期间请求打到半成品引擎
+                new_engine = type(main.search_engine)()
+                new_engine.load_all()
+                main.search_engine = new_engine
             except Exception:
                 pass
         threading.Thread(target=_rebuild, daemon=True).start()

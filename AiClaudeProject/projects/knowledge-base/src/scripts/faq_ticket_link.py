@@ -26,7 +26,7 @@ from collections import defaultdict, Counter
 
 HERE = Path(__file__).resolve().parent
 PROJECT_DIR = HERE.parent
-FAQ_DIR = PROJECT_DIR / "FAQ知识库"
+FAQ_DIR = PROJECT_DIR / "data" / "faq"
 KB_DIR = PROJECT_DIR / "knowledge"
 
 # 工单分析文档搜索路径

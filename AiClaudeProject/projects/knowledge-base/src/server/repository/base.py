@@ -1,8 +1,8 @@
 """
-Repository 数据访问层 - 抽象接口
+Repository 数据访问层 - 抽象接口与数据模型
 
-定义知识库数据访问的统一接口。当前实现: FileRepository（文件系统）。
-未来可扩展: DBRepository（数据库）、S3Repository（云存储）等。
+定义知识库数据访问的统一接口与数据结构。当前唯一实现: DBRepository
+（PostgreSQL 优先，SQLite 自动回退；文档内容主体仍为文件系统 data/）。
 """
 
 from abc import ABC, abstractmethod

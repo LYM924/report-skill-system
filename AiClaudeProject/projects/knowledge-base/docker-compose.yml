@@ -2,6 +2,7 @@ version: "3.8"
 services:
   postgres:
     image: postgres:15-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: kb_user
       POSTGRES_PASSWORD: kb_pass
@@ -16,6 +17,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     ports:
       - "6379:6379"
     volumes:
@@ -26,6 +28,7 @@ services:
 
   minio:
     image: minio/minio:latest
+    restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minioadmin
@@ -41,6 +44,9 @@ services:
     env_file: .env
     environment:
       - STORAGE_BACKEND=${STORAGE_BACKEND:-local}
+      # 容器内覆盖数据库地址（本机直连与容器部署的 .env 不通用，此处以容器服务名为准）
+      - DATABASE_URL_SYNC=postgresql+psycopg2://kb_user:kb_pass@postgres:5432/knowledge_base
+    restart: unless-stopped
     volumes:
       - ./data:/app/data
       - ./runtime:/app/runtime

@@ -302,8 +302,10 @@ async def rebuild_index(background_tasks: BackgroundTasks, user: str = Depends(v
                 for f in cache_dir.glob("*"):
                     if f.is_file():
                         f.unlink()
-                main.search_engine = type(main.search_engine)()
-                main.search_engine.load_all()
+                # 先完整构建新引擎，再原子替换，避免加载期间请求打到半成品引擎
+                new_engine = type(main.search_engine)()
+                new_engine.load_all()
+                main.search_engine = new_engine
         except Exception:
             pass
 

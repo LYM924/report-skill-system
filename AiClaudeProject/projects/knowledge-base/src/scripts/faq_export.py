@@ -24,7 +24,7 @@ from collections import defaultdict
 
 HERE = Path(__file__).resolve().parent
 PROJECT_DIR = HERE.parent
-FAQ_DIR = PROJECT_DIR / "FAQ知识库"
+FAQ_DIR = PROJECT_DIR / "data" / "faq"
 OUTPUT_DIR = FAQ_DIR / "export"
 INDEX_FILE = FAQ_DIR / "INDEX.md"
 
