@@ -389,12 +389,15 @@ def _body_is_intact(body: str, final: str) -> bool:
         return False
 
 
-def _slugify(text: str) -> str:
-    """生成 GitHub 风格锚点（中文保留，空格转 -，去掉常见标点）"""
-    slug = text.strip()
-    for ch in "（）()【】[]·、，。：:；;！!？?\"'‘’“”":
-        slug = slug.replace(ch, "")
-    return slug.replace(" ", "-").replace("/", "-")
+def _clean_html_artifacts(text: str) -> str:
+    """清理 HTML 转 Markdown 残留：<br> → 换行、\\- → -、&nbsp; → 空格
+
+    只做格式清理不删除内容，正文完整性要求不变。
+    """
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+    text = text.replace("\\-", "-")
+    text = text.replace("&nbsp;", " ")
+    return text
 
 
 def _format_kb_document(title: str, dept: str, module: str, product: str, product_line: str,
@@ -405,42 +408,36 @@ def _format_kb_document(title: str, dept: str, module: str, product: str, produc
     规范见 SKILL.md「原始文档 → 知识库转换规范」，字段表格式对齐存量文档（例：
     智慧门诊-20251113-免疫规划-智慧门诊.md），双向链接按文件位置计算相对路径。
     """
-    # 目录：正文 H2/H3 大纲
-    outline = []
+    # 版本迭代时间线【总目录】：正文 ##/### 标题逐行生成（替代链接式目录）。
+    # ### 标题带日期时提取时间（周/月报一周内多次发版靠时间列区分），
+    # 无日期的 ### 与 ## 章节时间留空；标题列保证无日期的行可读。
+    rows = []
+    has_dated = False
+    date_re = re.compile(r"(\d{4}[-./年]\d{1,2}(?:[-./月]\d{1,2})?日?)")
     for line in body.split("\n"):
         if line.startswith("### "):
             heading = line[4:].strip()
-            outline.append(f"- [{heading}](#{_slugify(heading)})")
+            m = date_re.search(heading)
+            if m:
+                has_dated = True
+                entry_date = m.group(1).replace("年", "-").replace("月", "-").replace("日", "").replace(".", "-").replace("/", "-")
+                entry_title = date_re.sub("", heading).strip(" -–—:")
+            else:
+                entry_date, entry_title = "", heading
+            rows.append((entry_date, entry_title))
         elif line.startswith("## "):
-            heading = line[3:].strip()
-            outline.append(f"- [{heading}](#{_slugify(heading)})")
-    outline_md = "\n".join(outline) if outline else "（正文无标题章节）"
-
-    # 版本迭代时间线【总目录】：从正文中带日期的 ### 标题自动生成
-    # （周报/月报类文档一周内可能有多次发版，总目录必须带时间列区分各版本）
-    timeline_rows = []
-    date_re = re.compile(r"(\d{4}[-./年]\d{1,2}(?:[-./月]\d{1,2})?日?)")
-    for line in body.split("\n"):
-        if not line.startswith("### "):
-            continue
-        heading = line[4:].strip()
-        m = date_re.search(heading)
-        if not m:
-            continue
-        entry_date = m.group(1).replace("年", "-").replace("月", "-").replace("日", "").replace(".", "-").replace("/", "-")
-        entry_title = date_re.sub("", heading).strip(" -–—:")
-        if entry_title:
-            timeline_rows.append(
-                f"| {entry_date} | {dept} | {product_line} | {product} | "
-                f"{'、'.join(kw_list[:5]) or '-'} |  |"
-            )
-    if timeline_rows:
-        timeline_md = ("## 版本迭代时间线【总目录】\n\n"
-                       "| 版本迭代时间 | 关联部门 | 产品线 | 产品 | 关键词 | 附录 |\n"
-                       "|-------------|---------|--------|------|--------|------|\n"
-                       + "\n".join(timeline_rows) + "\n")
+            rows.append(("", line[3:].strip()))
+    if rows:
+        toc_md = ("## 版本迭代时间线【总目录】\n\n"
+                  "| 版本迭代时间 | 标题 | 关联部门 | 产品线 | 产品 | 关键词 | 附录 |\n"
+                  "|-------------|------|---------|--------|------|--------|------|\n"
+                  + "\n".join(
+                      f"| {d} | {t.replace('|', chr(92) + '|')} | {dept} | {product_line} | {product} | "
+                      f"{'、'.join(kw_list[:5]) or '-'} |  |"
+                      for d, t in rows
+                  ) + "\n")
     else:
-        timeline_md = ""
+        toc_md = "## 版本迭代时间线【总目录】\n\n（正文无标题章节）\n"
 
     kw_md = " ".join(f"`{k}`" for k in kw_list) if kw_list else "（无）"
     now = datetime.datetime.now().isoformat()
@@ -452,7 +449,7 @@ module: {module}
 product: {product}
 product_line: {product_line}
 domain: {domain}
-type: {doc_type or ("版本迭代" if timeline_rows else "")}
+type: {doc_type or ("版本迭代" if has_dated else "")}
 date: {today}
 keywords: {json.dumps(kw_list, ensure_ascii=False)}
 appendix: ""
@@ -470,15 +467,11 @@ imported: {now}
 | 所属产品线 | {product_line} |
 | 附录 |  |
 
-## 目录
-
-{outline_md}
-
 ## 关键词
 
 {kw_md}
 
-{timeline_md}
+{toc_md}
 {body.strip()}
 
 ## 双向链接
@@ -527,6 +520,8 @@ async def _upload_document(filename: str, content: str, dept: str, module: str) 
         f"##{line[1:]}" if line.startswith("# ") else line
         for line in body.split("\n")
     )
+    # 清理 HTML 残留（<br>、\-、&nbsp;）
+    body = _clean_html_artifacts(body)
 
     # 关键词：自动提取（TF-IDF+TextRank），不足 5 个用关键词索引在正文中兜底
     kw_list = []
