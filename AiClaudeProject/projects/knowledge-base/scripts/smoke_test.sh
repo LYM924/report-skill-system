@@ -112,6 +112,63 @@ if [ "$WRITE_MODE" = "1" ]; then
   else
     echo "  ⚠️ POST 未返回 mapping_id，跳过 PUT/DELETE"
   fi
+
+  if [ -n "$AUTH_TOKEN" ]; then
+    echo "-- 上传格式回归（一次性数据）--"
+    KB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    UP_NAME="smoke_格式验证_$(date +%s).md"
+    python3 - "$UP_NAME" <<'PYEOF'
+import json, sys
+payload = {
+    "filename": sys.argv[1],
+    "content": "# 格式验证\n\n## 需求分析\n\n现状：<br>1、测试<br>2、测试\n\n## 需求场景\n\n\\-Tab导航：测试；\n",
+    "dept": "电子卖场",
+    "module": "合同",
+}
+open('/tmp/smoke_upload.json', 'w', encoding='utf-8').write(json.dumps(payload, ensure_ascii=False))
+PYEOF
+    UP_RESP=$(curl -s -X POST "${AUTH_HEADER[@]}" -H "Content-Type: application/json" \
+      --data-binary @/tmp/smoke_upload.json "$BASE/api/document/upload")
+    UP_PATH=$(echo "$UP_RESP" | python3 -c "import sys,json;print(json.load(sys.stdin).get('path',''))" 2>/dev/null)
+    if [ -n "$UP_PATH" ] && [ -f "$KB_DIR/$UP_PATH" ]; then
+      if python3 - "$KB_DIR/$UP_PATH" <<'PYEOF'
+import sys
+text = open(sys.argv[1], encoding='utf-8').read()
+assert '版本迭代时间线【总目录】' in text, '总目录缺失'
+assert '<br>' not in text, '残留 <br>'
+assert '\\-' not in text, '残留 \\-'
+assert '## 双向链接' in text, '双向链接缺失'
+print('格式断言通过')
+PYEOF
+      then
+        PASS=$((PASS+1)); echo "  ✅ 上传格式回归（总目录/<br>/\\-/双向链接）"
+      else
+        FAIL=$((FAIL+1)); FAILED_NAMES+=("上传格式回归"); echo "  ❌ 上传格式回归（断言失败）"
+      fi
+      # 清理一次性数据（文件 + documents 行 + 关键词映射 + 孤儿关键词）
+      python3 - "$KB_DIR" "$UP_PATH" <<'PYEOF'
+import sys
+from pathlib import Path
+kb_dir, p = Path(sys.argv[1]), sys.argv[2]
+sys.path.insert(0, str(kb_dir / 'src' / 'server'))
+db_ok = False
+try:
+    from repository.db_repo import DBRepository
+    repo = DBRepository()
+    repo._execute_write('DELETE FROM keyword_mappings WHERE kb_path = ?', (p,))
+    repo._execute_write('DELETE FROM keywords_v2 WHERE id NOT IN (SELECT DISTINCT keyword_id FROM keyword_mappings)')
+    repo._execute_write('DELETE FROM document_departments WHERE document_path = ?', (p,))
+    repo._execute_write('DELETE FROM documents WHERE path = ?', (p,))
+    db_ok = True
+except Exception:
+    pass
+(kb_dir / p).unlink(missing_ok=True)
+print(f'清理: {p} (DB={db_ok})')
+PYEOF
+    else
+      FAIL=$((FAIL+1)); FAILED_NAMES+=("上传格式回归"); echo "  ❌ 上传格式回归 (上传失败: $UP_RESP)"
+    fi
+  fi
 fi
 
 echo ""
