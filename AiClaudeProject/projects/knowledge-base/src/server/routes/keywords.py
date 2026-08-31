@@ -42,19 +42,8 @@ class KeywordDelete(BaseModel):
     keyword_id: Optional[int] = None
 
 
-def _module_id_by_name(repo: DBRepository, module: str):
-    if not module:
-        return None
-    row = repo._execute_one("SELECT id FROM modules WHERE name = ? LIMIT 1", (module,))
-    return row["id"] if row else None
-
-
-def _dept_id_by_name(repo: DBRepository, dept: str):
-    """按部门名称解析 departments.id（与文档上传链路一致，保证部门名称+ID 双写）"""
-    if not dept:
-        return None
-    row = repo._execute_one("SELECT id FROM departments WHERE name = ? LIMIT 1", (dept.strip(),))
-    return row["id"] if row else None
+# 名称→ID 解析统一走 DBRepository.resolve_module_id / resolve_dept_id
+# （部门限定优先 + 名称唯一回退，避免同名模块跨部门取错）
 
 
 @router.get("/keywords")
@@ -111,11 +100,11 @@ async def add_keyword(body: KeywordCreate, user: str = Depends(verify_token)):
     module_id = body.module_id or 0
     module_name = body.module or ""
     if not module_id and module_name:
-        module_id = _module_id_by_name(repo, module_name) or 0
+        module_id = repo.resolve_module_id(module_name, dept_name=body.dept) or 0
     # 部门：只传名称时按名称解析 ID，保证 department 名称+ID 双写落库
     dept_id = body.dept_id or 0
     if not dept_id and body.dept:
-        dept_id = _dept_id_by_name(repo, body.dept) or 0
+        dept_id = repo.resolve_dept_id(body.dept) or 0
 
     result = repo.add_keyword(keyword, module_id, dept_id, body.dept or "")
     if "error" in result:
@@ -148,11 +137,11 @@ async def update_keyword(body: KeywordUpdate, user: str = Depends(verify_token))
     module_id = body.module_id
     module_name = body.module or ""
     if module_name and module_id in (None, 0):
-        module_id = _module_id_by_name(repo, module_name)
+        module_id = repo.resolve_module_id(module_name, dept_name=body.dept)
     # 部门：传名称未传 ID 时按名称解析（None 且无名称 = 清空外键，保持原语义）
     dept_id = body.dept_id
     if body.dept and dept_id in (None, 0):
-        dept_id = _dept_id_by_name(repo, body.dept)
+        dept_id = repo.resolve_dept_id(body.dept)
 
     result = repo.update_keyword(
         body.mapping_id,

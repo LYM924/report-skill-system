@@ -70,17 +70,12 @@ def _get_module_map():
 def _resolve_kw_ids(dept: str, sub_module: str, repo: DBRepository):
     """解析关键词写入所需的 module_id/dept_id（NULL 安全）
 
-    注意：dept_id 必须按用户选择的部门名解析，不能取自模块行的 department_id——
-    modules 表的部门关联是旧组织架构（如"合同"模块挂在乐采事业部），
-    与上传时用户选择的部门（电子卖场）不一致。
+    dept_id 按用户选择的部门名解析（不取模块行——modules 表部门关联是旧
+    组织架构）；module_id 优先「部门+名称」联合匹配，同名模块跨部门时
+    不取错，无匹配回退名称唯一查找。
     """
-    module_id, dept_id = None, None
-    if dept:
-        row = repo._execute_one("SELECT id FROM departments WHERE name = ? LIMIT 1", (dept,))
-        dept_id = row["id"] if row else None
-    if sub_module:
-        row = repo._execute_one("SELECT id FROM modules WHERE name = ? LIMIT 1", (sub_module,))
-        module_id = row["id"] if row else None
+    dept_id = repo.resolve_dept_id(dept)
+    module_id = repo.resolve_module_id(sub_module, dept_name=dept) if sub_module else None
     return module_id, dept_id
 
 

@@ -54,16 +54,14 @@ def _reload_after_faq_change(rebuild_vector: bool = True):
 
 
 def _resolve_kw_ids(dept: str, sub_module: str, repo: DBRepository):
-    """解析关键词写入所需的 module_id/dept_id（外键，NULL 安全）"""
-    module_id, dept_id = None, None
-    if sub_module:
-        row = repo._execute_one("SELECT id, department_id FROM modules WHERE name = ? LIMIT 1", (sub_module,))
-        if row:
-            module_id = row["id"]
-            dept_id = row["department_id"]
-    if not dept_id and dept:
-        row = repo._execute_one("SELECT id FROM departments WHERE name = ? LIMIT 1", (dept,))
-        dept_id = row["id"] if row else None
+    """解析关键词写入所需的 module_id/dept_id（外键，NULL 安全）
+
+    dept_id 按用户选择的部门名解析（不取模块行——modules 表部门关联是旧
+    组织架构）；module_id 优先「部门+名称」联合匹配，同名模块跨部门时
+    不取错，无匹配回退名称唯一查找。
+    """
+    dept_id = repo.resolve_dept_id(dept)
+    module_id = repo.resolve_module_id(sub_module, dept_name=dept) if sub_module else None
     return module_id, dept_id
 
 

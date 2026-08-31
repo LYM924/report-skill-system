@@ -214,6 +214,39 @@ class DBRepository(KnowledgeRepository):
 
         return modules
 
+    # ══════ 名称 → ID 解析（部门限定优先） ══════
+
+    def resolve_dept_id(self, dept: str):
+        """按部门名称解析 departments.id（无匹配返回 None）"""
+        if not dept:
+            return None
+        row = self._execute_one(
+            "SELECT id FROM departments WHERE name = ? LIMIT 1", (dept.strip(),)
+        )
+        return row["id"] if row else None
+
+    def resolve_module_id(self, module: str, dept_name: str = ""):
+        """按模块名称解析 modules.id。
+
+        提供部门名时优先「部门+名称」联合匹配，避免同名模块跨部门时
+        LIMIT 1 取错记录；modules 表部门为旧组织架构，无部门匹配时
+        回退名称唯一查找（保持历史行为）。
+        """
+        if not module:
+            return None
+        dept_id = self.resolve_dept_id(dept_name) if dept_name else None
+        if dept_id:
+            row = self._execute_one(
+                "SELECT id FROM modules WHERE name = ? AND department_id = ? LIMIT 1",
+                (module.strip(), dept_id)
+            )
+            if row:
+                return row["id"]
+        row = self._execute_one(
+            "SELECT id FROM modules WHERE name = ? LIMIT 1", (module.strip(),)
+        )
+        return row["id"] if row else None
+
     # ══════ Keywords v2 (ID-based) ══════
 
     def get_all_keywords_v2(self) -> dict[str, list[dict]]:
