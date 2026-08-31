@@ -49,6 +49,14 @@ def _module_id_by_name(repo: DBRepository, module: str):
     return row["id"] if row else None
 
 
+def _dept_id_by_name(repo: DBRepository, dept: str):
+    """按部门名称解析 departments.id（与文档上传链路一致，保证部门名称+ID 双写）"""
+    if not dept:
+        return None
+    row = repo._execute_one("SELECT id FROM departments WHERE name = ? LIMIT 1", (dept.strip(),))
+    return row["id"] if row else None
+
+
 @router.get("/keywords")
 async def list_keywords(
     q: str = Query(""),
@@ -104,8 +112,12 @@ async def add_keyword(body: KeywordCreate, user: str = Depends(verify_token)):
     module_name = body.module or ""
     if not module_id and module_name:
         module_id = _module_id_by_name(repo, module_name) or 0
+    # 部门：只传名称时按名称解析 ID，保证 department 名称+ID 双写落库
+    dept_id = body.dept_id or 0
+    if not dept_id and body.dept:
+        dept_id = _dept_id_by_name(repo, body.dept) or 0
 
-    result = repo.add_keyword(keyword, module_id, body.dept_id or 0, body.dept or "")
+    result = repo.add_keyword(keyword, module_id, dept_id, body.dept or "")
     if "error" in result:
         record_write_failure("keyword_write")
         return JSONResponse(result, status_code=400)
@@ -137,12 +149,16 @@ async def update_keyword(body: KeywordUpdate, user: str = Depends(verify_token))
     module_name = body.module or ""
     if module_name and module_id in (None, 0):
         module_id = _module_id_by_name(repo, module_name)
+    # 部门：传名称未传 ID 时按名称解析（None 且无名称 = 清空外键，保持原语义）
+    dept_id = body.dept_id
+    if body.dept and dept_id in (None, 0):
+        dept_id = _dept_id_by_name(repo, body.dept)
 
     result = repo.update_keyword(
         body.mapping_id,
         keyword=body.keyword or None,
         module_id=module_id,
-        dept_id=body.dept_id,
+        dept_id=dept_id,
         dept=body.dept or "",
     )
     if "error" in result:
