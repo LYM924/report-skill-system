@@ -167,7 +167,7 @@ function SettingsCenter({ isDark }) {
             <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
               {protocol === 'openai'
                 ? '适用于 OpenAI / 通义千问 / 智谱GLM / Kimi / 豆包 / Ollama 等'
-                : '适用于 DeepSeek anthropic 端点 / Claude 官方等'}
+                : '适用于 DeepSeek anthropic 端点 / Claude 官方 / 公司AI网关等'}
             </div>
           </Form.Item>
 
