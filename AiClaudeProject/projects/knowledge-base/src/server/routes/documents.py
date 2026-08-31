@@ -398,8 +398,9 @@ def _slugify(text: str) -> str:
 
 
 def _format_kb_document(title: str, dept: str, module: str, product: str, product_line: str,
-                        body: str, kw_list: list, today: str, rel_prefix: str) -> str:
-    """按统一规范组装知识库文档：frontmatter + 字段表 + 目录 + 关键词 + 正文 + 双向链接
+                        body: str, kw_list: list, today: str, rel_prefix: str,
+                        domain: str = "", doc_type: str = "") -> str:
+    """按统一规范组装知识库文档：frontmatter + 字段表 + 目录 + 关键词 + 版本迭代时间线 + 正文 + 双向链接
 
     规范见 SKILL.md「原始文档 → 知识库转换规范」，字段表格式对齐存量文档（例：
     智慧门诊-20251113-免疫规划-智慧门诊.md），双向链接按文件位置计算相对路径。
@@ -415,6 +416,32 @@ def _format_kb_document(title: str, dept: str, module: str, product: str, produc
             outline.append(f"- [{heading}](#{_slugify(heading)})")
     outline_md = "\n".join(outline) if outline else "（正文无标题章节）"
 
+    # 版本迭代时间线【总目录】：从正文中带日期的 ### 标题自动生成
+    # （周报/月报类文档一周内可能有多次发版，总目录必须带时间列区分各版本）
+    timeline_rows = []
+    date_re = re.compile(r"(\d{4}[-./年]\d{1,2}(?:[-./月]\d{1,2})?日?)")
+    for line in body.split("\n"):
+        if not line.startswith("### "):
+            continue
+        heading = line[4:].strip()
+        m = date_re.search(heading)
+        if not m:
+            continue
+        entry_date = m.group(1).replace("年", "-").replace("月", "-").replace("日", "").replace(".", "-").replace("/", "-")
+        entry_title = date_re.sub("", heading).strip(" -–—:")
+        if entry_title:
+            timeline_rows.append(
+                f"| {entry_date} | {dept} | {product_line} | {product} | "
+                f"{'、'.join(kw_list[:5]) or '-'} |  |"
+            )
+    if timeline_rows:
+        timeline_md = ("## 版本迭代时间线【总目录】\n\n"
+                       "| 版本迭代时间 | 关联部门 | 产品线 | 产品 | 关键词 | 附录 |\n"
+                       "|-------------|---------|--------|------|--------|------|\n"
+                       + "\n".join(timeline_rows) + "\n")
+    else:
+        timeline_md = ""
+
     kw_md = " ".join(f"`{k}`" for k in kw_list) if kw_list else "（无）"
     now = datetime.datetime.now().isoformat()
     return f"""---
@@ -424,6 +451,8 @@ dept3: {dept}
 module: {module}
 product: {product}
 product_line: {product_line}
+domain: {domain}
+type: {doc_type or ("版本迭代" if timeline_rows else "")}
 date: {today}
 keywords: {json.dumps(kw_list, ensure_ascii=False)}
 appendix: ""
@@ -449,6 +478,7 @@ imported: {now}
 
 {kw_md}
 
+{timeline_md}
 {body.strip()}
 
 ## 双向链接
@@ -521,19 +551,20 @@ async def _upload_document(filename: str, content: str, dept: str, module: str) 
     target_dir.mkdir(parents=True, exist_ok=True)
     file_path = target_dir / safe_name
 
-    # 产品/产品线：从模块表自动解析（模块 → 产品 → 产品线）
+    # 产品/产品线/产品域：从模块表自动解析（模块 → 产品 → 产品线）
     today = datetime.date.today().strftime("%Y%m%d")
     mod_info = _get_module_map().get(module, {})
     product = mod_info.get("product", "")
     product_line = mod_info.get("product_line", "")
+    domain = mod_info.get("domain", "")
 
-    # 统一模板组装（frontmatter + 字段表 + 目录 + 关键词 + 正文 + 双向链接）
+    # 统一模板组装（frontmatter + 字段表 + 目录 + 关键词 + 总目录 + 正文 + 双向链接）
     # 双向链接目标（ProjectSkill、2026报表数据知识库）位于 AiClaudeProject/ 下，
     # 相对路径以 AiClaudeProject 根为基准计算
     ai_root = settings.PROJECT_DIR.parent.parent  # AiClaudeProject/
     rel_prefix = os.path.relpath(ai_root, target_dir).replace(os.sep, "/")
     final_content = _format_kb_document(
-        title, dept, module, product, product_line, body, kw_list, today, rel_prefix
+        title, dept, module, product, product_line, body, kw_list, today, rel_prefix, domain
     )
     # 内容完整性兜底：正文任何一行丢失都禁止重排，退回"原内容原样"的最小模板
     if not _body_is_intact(body, final_content):
@@ -545,6 +576,8 @@ dept3: {dept}
 module: {module}
 product: {product}
 product_line: {product_line}
+domain: {domain}
+type: ""
 date: {today}
 keywords: {json.dumps(kw_list, ensure_ascii=False)}
 appendix: ""
