@@ -38,6 +38,8 @@ class UploadBody(BaseModel):
     content: str = ""
     dept: str = ""
     module: str = ""
+    dept_id: int = 0      # 前端选择器携带的唯一部门 ID（优先于名称）
+    module_id: int = 0    # 前端选择器携带的唯一模块 ID（优先于名称）
 
 
 def _get_module_map():
@@ -67,16 +69,19 @@ def _get_module_map():
     return _mod_cache
 
 
-def _resolve_kw_ids(dept: str, sub_module: str, repo: DBRepository):
+def _resolve_kw_ids(dept: str, sub_module: str, repo: DBRepository,
+                    dept_id: int = 0, module_id: int = 0):
     """解析关键词写入所需的 module_id/dept_id（NULL 安全）
 
-    dept_id 按用户选择的部门名解析（不取模块行——modules 表部门关联是旧
-    组织架构）；module_id 优先「部门+名称」联合匹配，同名模块跨部门时
-    不取错，无匹配回退名称唯一查找。
+    前端携带的 ID 优先（唯一标识，避免同名歧义）；未携带时按名称解析——
+    dept_id 按用户选择的部门名（不取模块行——modules 表部门关联是旧组织
+    架构）；module_id 优先「部门+名称」联合匹配，无匹配回退名称唯一查找。
     """
-    dept_id = repo.resolve_dept_id(dept)
-    module_id = repo.resolve_module_id(sub_module, dept_name=dept) if sub_module else None
-    return module_id, dept_id
+    resolved_dept = dept_id or repo.resolve_dept_id(dept)
+    resolved_module = module_id or (
+        repo.resolve_module_id(sub_module, dept_name=dept) if sub_module else None
+    )
+    return resolved_module, resolved_dept
 
 
 @router.get("/documents")
@@ -480,14 +485,27 @@ imported: {now}
 """
 
 
-async def _upload_document(filename: str, content: str, dept: str, module: str) -> dict:
-    """上传文档公共逻辑（POST JSON / GET query 共用）"""
+async def _upload_document(filename: str, content: str, dept: str, module: str,
+                           dept_id: int = 0, module_id: int = 0) -> dict:
+    """上传文档公共逻辑（POST JSON / GET query 共用）
+
+    dept_id/module_id 优先于名称使用（前端选择器携带唯一 ID，避免同名歧义）；
+    传 ID 未传名称时由服务端反查名称用于目录与落库。
+    """
     from keyword_extractor import get_extractor, build_extractor_idf
 
     if not content or not content.strip():
         return {"error": "content 必填"}
     # 清理 NUL 字节：PG text 字段拒绝 \x00，会导致 documents 写入静默失败（文档不可见）
     content = content.replace("\x00", "")
+    repo = DBRepository()
+    # 前端携带 ID 时：ID 优先，名称缺失则按 ID 反查
+    if dept_id and not dept:
+        row = repo._execute_one("SELECT name FROM departments WHERE id = ?", (dept_id,))
+        dept = row["name"] if row else ""
+    if module_id and not module:
+        row = repo._execute_one("SELECT name FROM modules WHERE id = ?", (module_id,))
+        module = row["name"] if row else ""
     dept = dept or "数智财务组"
     module = module or "浙里报"
 
@@ -585,10 +603,9 @@ imported: {now_iso}
     rel_path = str(file_path.relative_to(settings.PROJECT_DIR))
 
     # 关键词双表写入
-    repo = DBRepository()
     m_id, d_id = None, None
     try:
-        m_id, d_id = _resolve_kw_ids(dept, module, repo)
+        m_id, d_id = _resolve_kw_ids(dept, module, repo, dept_id=dept_id, module_id=module_id)
         for kw in kw_list:
             repo.add_keyword(kw, m_id or 0, d_id or 0, dept, kb_path=rel_path)
     except Exception:
@@ -660,7 +677,8 @@ imported: {now_iso}
 @router.post("/document/upload")
 async def upload_document(body: UploadBody, user: str = Depends(verify_token)):
     """上传文档（POST JSON body）"""
-    result = await _upload_document(body.filename, body.content, body.dept, body.module)
+    result = await _upload_document(body.filename, body.content, body.dept, body.module,
+                                    dept_id=body.dept_id, module_id=body.module_id)
     if "error" in result:
         return JSONResponse(result, status_code=422)
     return result
@@ -672,10 +690,13 @@ async def upload_document_get(
     content: str = Query(""),
     dept: str = Query(""),
     module: str = Query(""),
+    dept_id: int = Query(0),
+    module_id: int = Query(0),
     user: str = Depends(verify_token),
 ):
     """上传文档（GET query，兼容旧客户端）"""
-    result = await _upload_document(filename, content, dept, module)
+    result = await _upload_document(filename, content, dept, module,
+                                    dept_id=dept_id, module_id=module_id)
     if "error" in result:
         return JSONResponse(result, status_code=422)
     return result

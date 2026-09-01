@@ -164,6 +164,46 @@ PROVIDER_PRESETS = [
 
 def get_provider_presets() -> list:
     return PROVIDER_PRESETS
+# ══════ 全机联动：管理员保存配置 → 同步共享 AI 环境文件 ══════
+
+def _shared_env_path() -> str:
+    """共享 AI 环境文件路径（终端 Claude Code 等工具统一 source 此文件）"""
+    return os.path.expanduser(os.getenv("SHARED_AI_ENV_FILE", "~/.ai_gateway.env"))
+
+
+def sync_shared_env(username: str, model: str, base_url: str, api_key: str, protocol: str) -> None:
+    """管理员保存 AI 配置后，将配置写入共享环境文件，实现全机联动。
+
+    - 仅管理员保存时触发（其他用户的配置只影响知识库内本人 AI 功能）；
+    - 仅同步 anthropic 协议（Claude Code 只认 Anthropic 协议，openai 协议的
+      key 无法给终端使用，跳过并保留原文件）；
+    - 同步失败只告警不阻断保存。
+    """
+    if not is_admin(username) or protocol != "anthropic":
+        return
+    path = _shared_env_path()
+    content = (
+        "# 本机统一 AI 大模型配置（唯一来源：知识库配置中心「管理员保存」时由后端同步写入）\n"
+        "# 供终端 Claude Code 与所有读取 ANTHROPIC_* 环境变量的工具共用，请勿手改\n"
+        f'export ANTHROPIC_BASE_URL="{base_url}"\n'
+        f'export ANTHROPIC_AUTH_TOKEN="{api_key}"\n'
+        f'export ANTHROPIC_MODEL="{model}"\n'
+        f'export ANTHROPIC_DEFAULT_OPUS_MODEL="{model}"\n'
+        f'export ANTHROPIC_DEFAULT_SONNET_MODEL="{model}"\n'
+        f'export ANTHROPIC_DEFAULT_HAIKU_MODEL="{model}"\n'
+        f'export CLAUDE_CODE_SUBAGENT_MODEL="{model}"\n'
+        f'export CLAUDE_MODEL="{model}"\n'
+        'export API_TIMEOUT_MS="3000000"\n'
+        'export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1"\n'
+    )
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+        os.chmod(path, 0o600)
+        print(f"[ai_config] 已同步共享AI环境文件: {path}")
+    except Exception as e:
+        print(f"[ai_config] 同步共享AI环境文件失败: {e}")
+
 
 
 def get_ai_config(username: str) -> dict:
@@ -200,6 +240,7 @@ def save_ai_config(username: str, model: str, base_url: str, api_key: str, max_t
                    provider: str = "custom", protocol: str = "anthropic") -> dict:
     """保存配置。api_key 传空 = 保留已有密钥（前端脱敏回显后重新保存的场景）"""
     repo = DBRepository()
+    model_final = model or "deepseek-v4-pro"
     if api_key:
         enc = encrypt_key(api_key)
     else:
@@ -213,11 +254,14 @@ def save_ai_config(username: str, model: str, base_url: str, api_key: str, max_t
             "model = EXCLUDED.model, base_url = EXCLUDED.base_url, "
             "api_key_enc = EXCLUDED.api_key_enc, max_tokens = EXCLUDED.max_tokens, "
             "provider = EXCLUDED.provider, protocol = EXCLUDED.protocol, updated_at = NOW()",
-            (username, model or "deepseek-v4-pro", base_url or "", enc, int(max_tokens or 4096),
+            (username, model_final, base_url or "", enc, int(max_tokens or 4096),
              provider or "custom", protocol or "anthropic"))
-        return {"ok": True}
     except Exception as e:
         return {"error": f"保存失败: {e}"}
+    # 管理员保存 = 全机联动：同步写入共享AI环境文件（终端 Claude Code 等统一读取）
+    sync_shared_env(username, model_final, base_url or "",
+                    api_key or decrypt_key(enc), protocol or "anthropic")
+    return {"ok": True}
 
 
 def resolve_ai_config(username: str) -> dict:

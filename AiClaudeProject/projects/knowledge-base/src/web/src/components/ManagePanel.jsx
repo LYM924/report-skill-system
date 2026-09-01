@@ -46,6 +46,7 @@ function ManagePanel({ isDark }) {
   const [uploadDept, setUploadDept] = useState('数智财务组');
   const [uploadDeptIds, setUploadDeptIds] = useState([]);
   const [uploadModule, setUploadModule] = useState('浙里报');
+  const [uploadModuleId, setUploadModuleId] = useState(0);
 
   const handleDeleteDraft = async (id, path) => {
     if (path) {
@@ -356,7 +357,12 @@ function ManagePanel({ isDark }) {
             </div>
             <div style={{ flex: 1 }}>
               <Text type="secondary" style={{ fontSize: 12 }}>所属模块</Text>
-              <ModuleSelect value={uploadModule} onChange={setUploadModule} placeholder="输入模块名搜索..." style={{ marginTop: 4 }} />
+              <ModuleSelect
+                value={uploadModule}
+                onChange={(name, id) => { setUploadModule(name); setUploadModuleId(id || 0); }}
+                placeholder="输入模块名搜索..."
+                style={{ marginTop: 4 }}
+              />
             </div>
           </div>
           {uploadContent && (
@@ -380,7 +386,9 @@ function ManagePanel({ isDark }) {
                 filename: uploadFilename,
                 content: uploadContent,
                 dept: uploadDept,
+                dept_id: uploadDeptIds.length ? uploadDeptIds[uploadDeptIds.length - 1] : 0,
                 module: uploadModule,
+                module_id: uploadModuleId,
               });
               const resp = await authFetch('/api/document/upload', {
                 method: 'POST',

@@ -461,8 +461,10 @@ class DBRepository(KnowledgeRepository):
             path=row["file_path"] or "",
             tags=parse_json(row["tags"]),
             dept=row["dept"] or "",
+            dept_id=row["dept_id"] or 0,
             sub_module=row["sub_module"] or "",
             module=row["module"] or "",
+            module_id=row["module_id"] or 0,
             scene=row["scene"] or "",
             status=row["status"] or 0,
             category_id=row["category_id"] or 0,
@@ -638,11 +640,11 @@ class DBRepository(KnowledgeRepository):
         self._execute_write("""
             INSERT INTO faqs
             (faq_code, faq_title, faq_question, faq_answer, content, category_id,
-             dept, sub_module, module, scene, tags, status, sort_num, view_count,
+             dept, dept_id, sub_module, module, module_id, scene, tags, status, sort_num, view_count,
              source_file_name, file_path, version_from, related, tickets,
              create_user, update_user, create_time, update_time, is_deleted)
             VALUES (:faq_code, :faq_title, :faq_question, :faq_answer, :content, :category_id,
-             :dept, :sub_module, :module, :scene, :tags, :status, :sort_num, :view_count,
+             :dept, :dept_id, :sub_module, :module, :module_id, :scene, :tags, :status, :sort_num, :view_count,
              :source_file_name, :file_path, :version_from, :related, :tickets,
              :create_user, :update_user, :create_time, :update_time, :is_deleted)
             ON CONFLICT (faq_code) DO UPDATE SET
@@ -652,8 +654,10 @@ class DBRepository(KnowledgeRepository):
                 content = EXCLUDED.content,
                 category_id = EXCLUDED.category_id,
                 dept = EXCLUDED.dept,
+                dept_id = EXCLUDED.dept_id,
                 sub_module = EXCLUDED.sub_module,
                 module = EXCLUDED.module,
+                module_id = EXCLUDED.module_id,
                 scene = EXCLUDED.scene,
                 tags = EXCLUDED.tags,
                 status = EXCLUDED.status,
@@ -674,8 +678,10 @@ class DBRepository(KnowledgeRepository):
             "content": faq.content,
             "category_id": faq.category_id or None,  # 0 → NULL，避免违反外键
             "dept": faq.dept,
+            "dept_id": faq.dept_id or None,  # 0 → NULL，避免违反外键
             "sub_module": faq.sub_module,
             "module": faq.module,
+            "module_id": faq.module_id or None,  # 0 → NULL，避免违反外键
             "scene": faq.scene,
             "tags": tags_list,
             "status": faq.status,

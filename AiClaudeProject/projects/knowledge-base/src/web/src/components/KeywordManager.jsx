@@ -21,6 +21,7 @@ function KeywordManager() {
   // 添加表单
   const [addKw, setAddKw] = useState('');
   const [addModule, setAddModule] = useState('');
+  const [addModuleId, setAddModuleId] = useState(0);
   const [addDeptIds, setAddDeptIds] = useState([]);
   const [addDeptNames, setAddDeptNames] = useState('');
 
@@ -30,6 +31,7 @@ function KeywordManager() {
   const [editMappingId, setEditMappingId] = useState(0);
   const [editKw, setEditKw] = useState('');
   const [editModule, setEditModule] = useState('');
+  const [editModuleId, setEditModuleId] = useState(0);
   const [editDeptIds, setEditDeptIds] = useState([]);
   const [editDeptNames, setEditDeptNames] = useState('');
 
@@ -49,11 +51,11 @@ function KeywordManager() {
     await addKeyword({
       keyword: addKw.trim(),
       module: addModule.trim(),
-      module_id: 0,  // 后端通过 module 名称查找 module_id
+      module_id: addModuleId,
       dept_id: deptId,
       dept: addDeptNames,
     });
-    setAddKw(''); setAddModule(''); setAddDeptIds([]); setAddDeptNames('');
+    setAddKw(''); setAddModule(''); setAddModuleId(0); setAddDeptIds([]); setAddDeptNames('');
     loadKeywords();
   };
 
@@ -76,6 +78,7 @@ function KeywordManager() {
     setEditMappingId(mapping.mapping_id || 0);
     setEditKw(record.keyword || '');
     setEditModule(mapping.module || record.modules?.[0] || '');
+    setEditModuleId(mapping.module_id || 0);
     setEditDeptIds(mapping.dept_id ? [mapping.dept_id] : []);
     setEditDeptNames(mapping.dept || record.depts?.[0] || '');
     setEditModal(true);
@@ -88,6 +91,7 @@ function KeywordManager() {
       mapping_id: editMappingId,
       keyword: editKw.trim(),
       module: editModule.trim(),
+      module_id: editModuleId,
       dept_id: deptId,
       dept: editDeptNames,
     });
@@ -103,7 +107,11 @@ function KeywordManager() {
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'flex-end', flexWrap: 'wrap' }}>
         <Input placeholder="关键词" value={addKw} onChange={e => setAddKw(e.target.value)} style={{ width: 150 }} />
         <div style={{ width: 180 }}>
-          <ModuleSelect value={addModule} onChange={setAddModule} placeholder="模块（搜索或输入）" />
+          <ModuleSelect
+            value={addModule}
+            onChange={(name, id) => { setAddModule(name); setAddModuleId(id || 0); }}
+            placeholder="模块（搜索或输入）"
+          />
         </div>
         <div style={{ width: 200 }}>
           <DeptCascader
@@ -160,7 +168,11 @@ function KeywordManager() {
           </div>
           <div>
             <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>模块</Text>
-            <ModuleSelect value={editModule} onChange={setEditModule} placeholder="模块（搜索或输入）" />
+            <ModuleSelect
+              value={editModule}
+              onChange={(name, id) => { setEditModule(name); setEditModuleId(id || 0); }}
+              placeholder="模块（搜索或输入）"
+            />
           </div>
           <div>
             <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>部门</Text>

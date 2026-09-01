@@ -36,8 +36,10 @@ class FAQ:
     path: str = ""              # 文件路径
     tags: list = field(default_factory=list)       # JSON 数组 ["银行回单","同步"]
     dept: str = ""
+    dept_id: int = 0
     sub_module: str = ""
     module: str = ""
+    module_id: int = 0
     scene: str = ""
     status: int = 0             # 0草稿 1已发布 2归档 3禁用
     category_id: int = 0

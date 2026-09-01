@@ -150,7 +150,7 @@ async def menu(user: str = Depends(verify_token)):
     repo = DBRepository()
 
     rows = repo._execute("""
-        SELECT m.name as module_name, m.description, m.dev_owner, m.module_owner,
+        SELECT m.id as module_id, m.name as module_name, m.description, m.dev_owner, m.module_owner,
                m.business_domain,
                p.name as product_name,
                pl.name as product_line_name,
@@ -232,6 +232,9 @@ async def menu(user: str = Depends(verify_token)):
         "businessModules": convert(biz_tree),
         "deptKnowledge": convert(dept_tree),
         "kbDept": convert(kb_dept),
+        # 模块扁平选项（前端选择器携带 module_id 用，ID 唯一避免同名歧义）
+        "moduleOptions": [{"id": r["module_id"], "name": r["module_name"]}
+                          for r in rows if r["module_name"]],
     }
 
 

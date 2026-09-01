@@ -53,16 +53,19 @@ def _reload_after_faq_change(rebuild_vector: bool = True):
         _rebuild_vector_in_background()
 
 
-def _resolve_kw_ids(dept: str, sub_module: str, repo: DBRepository):
+def _resolve_kw_ids(dept: str, sub_module: str, repo: DBRepository,
+                    dept_id: int = 0, module_id: int = 0):
     """解析关键词写入所需的 module_id/dept_id（外键，NULL 安全）
 
-    dept_id 按用户选择的部门名解析（不取模块行——modules 表部门关联是旧
-    组织架构）；module_id 优先「部门+名称」联合匹配，同名模块跨部门时
-    不取错，无匹配回退名称唯一查找。
+    前端携带的 ID 优先（唯一标识）；未携带时按名称解析——dept_id 按用户
+    选择的部门名（不取模块行——modules 表部门关联是旧组织架构）；
+    module_id 优先「部门+名称」联合匹配，无匹配回退名称唯一查找。
     """
-    dept_id = repo.resolve_dept_id(dept)
-    module_id = repo.resolve_module_id(sub_module, dept_name=dept) if sub_module else None
-    return module_id, dept_id
+    resolved_dept = dept_id or repo.resolve_dept_id(dept)
+    resolved_module = module_id or (
+        repo.resolve_module_id(sub_module, dept_name=dept) if sub_module else None
+    )
+    return resolved_module, resolved_dept
 
 
 @router.get("/faq")
@@ -200,12 +203,23 @@ async def save_faq(
     module: str = Query(""),
     content: str = Query(""),
     status: str = Query("draft"),
+    dept_id: int = Query(0),
+    module_id: int = Query(0),
     user: str = Depends(verify_token),
 ):
     """保存 FAQ：单文件 + faqs 表 + 关键词双表 + 重建索引
 
     带 id = 更新已有 FAQ（按 faq_code 幂等 upsert）；不带 id = 新增并生成 FAQ-{部门}-{模块}-{NNN}
+    dept_id/module_id 优先于名称使用（前端选择器携带唯一 ID），传 ID 未传名称时反查名称。
     """
+    repo = DBRepository()
+    if dept_id and not dept:
+        row = repo._execute_one("SELECT name FROM departments WHERE id = ?", (dept_id,))
+        dept = row["name"] if row else ""
+    if module_id and not (sub_module or module):
+        row = repo._execute_one("SELECT name FROM modules WHERE id = ?", (module_id,))
+        sub_module = row["name"] if row else ""
+        module = sub_module or module
     if not title or not dept:
         return JSONResponse({"error": "title 和 dept 为必填参数"}, status_code=422)
 
@@ -216,9 +230,12 @@ async def save_faq(
     faq_dir = settings.DATA_DIR / "faq" / dept_path / sub_path
     faq_dir.mkdir(parents=True, exist_ok=True)
 
+    # 解析最终 dept_id/module_id（前端 ID 优先，缺失时按名称回退）
+    resolved_d_id = dept_id or repo.resolve_dept_id(dept)
+    resolved_m_id = module_id or repo.resolve_module_id(sub_module or module, dept_name=dept)
+
     # 生成/复用 FAQ 编码
     if not id:
-        repo = DBRepository()
         row = repo._execute_one(
             "SELECT code FROM departments WHERE name = ? AND code IS NOT NULL LIMIT 1", (dept,))
         dept_code = row["code"] if row else DEPT_CODES.get(dept, "XX")
@@ -290,11 +307,11 @@ tickets: {json.dumps(tickets, ensure_ascii=False)}
     rel_path = str(file_path.relative_to(settings.PROJECT_DIR))
 
     # 写 faqs 表（write_file=False：文件已由本路由写入，避免双文件）
-    repo = DBRepository()
     faq = FAQ(
         faq_code=id, faq_title=title, faq_question=title, faq_answer=safe_content,
         content=file_content, path=rel_path, tags=kw_list, dept=dept,
-        sub_module=sub_module, module=module, scene="",
+        dept_id=resolved_d_id or 0, sub_module=sub_module, module=module,
+        module_id=resolved_m_id or 0, scene="",
         status=STATUS_MAP.get(status, 0), sort_num=0, view_count=0,
         source_file_name=f"{id}.md", version_from="",
         related=related, tickets=tickets,
@@ -311,7 +328,8 @@ tickets: {json.dumps(tickets, ensure_ascii=False)}
 
     # 关键词双表写入（复活式 upsert）
     try:
-        m_id, d_id = _resolve_kw_ids(dept, sub_module, repo)
+        m_id, d_id = _resolve_kw_ids(dept, sub_module, repo,
+                                     dept_id=resolved_d_id, module_id=resolved_m_id)
         for kw in kw_list:
             repo.add_keyword(kw, m_id or 0, d_id or 0, dept, kb_path=rel_path)
     except Exception:

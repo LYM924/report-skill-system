@@ -23,6 +23,7 @@ function FaqEditor({ isDark }) {
   const [editDept, setEditDept] = useState('数智财务组');
   const [editDeptIds, setEditDeptIds] = useState([]);  // 部门ID数组
   const [editModule, setEditModule] = useState('');
+  const [editModuleId, setEditModuleId] = useState(0);  // 模块唯一 ID
   const [editContent, setEditContent] = useState('');
   const [saving, setSaving] = useState(false);
   const [isNew, setIsNew] = useState(false);
@@ -48,7 +49,9 @@ function FaqEditor({ isDark }) {
     setEditTitle(faq.title || '');
     setEditKeywords((faq.keywords || []).join(', '));
     setEditDept(faq.dept || '数智财务组');
+    setEditDeptIds(faq.dept_id ? [faq.dept_id] : []);
     setEditModule(faq.sub_module || '');
+    setEditModuleId(faq.module_id || 0);
     setIsNew(false);
     // 加载完整内容
     setEditContent('加载中...');
@@ -71,7 +74,9 @@ function FaqEditor({ isDark }) {
     setEditTitle('');
     setEditKeywords('');
     setEditDept('数智财务组');
+    setEditDeptIds([]);
     setEditModule('');
+    setEditModuleId(0);
     setEditContent('');
     setIsNew(true);
     setEditModal(true);
@@ -85,8 +90,10 @@ function FaqEditor({ isDark }) {
         title: editTitle,
         keywords: editKeywords,
         dept: editDept,
+        dept_id: String(editDeptIds.length ? editDeptIds[editDeptIds.length - 1] : 0),
         sub_module: editModule,
         module: editModule,
+        module_id: String(editModuleId || 0),
         content: editContent,
         status: 'active',
       });
@@ -206,7 +213,11 @@ function FaqEditor({ isDark }) {
             </div>
             <div style={{ flex: 1 }}>
               <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>所属模块</Text>
-              <ModuleSelect value={editModule} onChange={setEditModule} placeholder="输入模块名搜索..." />
+              <ModuleSelect
+                value={editModule}
+                onChange={(name, id) => { setEditModule(name); setEditModuleId(id || 0); }}
+                placeholder="输入模块名搜索..."
+              />
             </div>
           </div>
           <Input.TextArea value={editContent} onChange={e => setEditContent(e.target.value)} rows={12} placeholder="FAQ 内容" />
