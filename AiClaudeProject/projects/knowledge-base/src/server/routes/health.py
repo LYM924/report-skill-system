@@ -26,23 +26,20 @@ def record_write_failure(kind: str):
 def schema_check() -> list:
     """校验关键表结构契约（列存在性、唯一索引），漂移即返回告警条目"""
     issues = []
-    from repository import DBRepository
-    repo = DBRepository()
+    from repository import get_repo
+    repo = get_repo()
     try:
-        cols = [r["column_name"] for r in repo._execute(
-            "SELECT column_name FROM information_schema.columns WHERE table_name = 'faqs'")]
+        cols = repo.check_table_columns("faqs")
         for c in ("related", "tickets"):
             if c not in cols:
                 issues.append(f"faqs 缺列 {c}")
     except Exception as e:
         issues.append(f"faqs 列校验失败: {e}")
     try:
-        idx = repo._execute(
-            "SELECT indexname FROM pg_indexes WHERE tablename = 'keyword_mappings' AND indexname = 'uq_km_kw_mod_active'")
+        idx = repo.check_table_indexes("keyword_mappings", "uq_km_kw_mod_active")
         if not idx:
             issues.append("keyword_mappings 缺部分唯一索引 uq_km_kw_mod_active")
-        idx2 = repo._execute(
-            "SELECT indexname FROM pg_indexes WHERE tablename = 'document_departments' AND indexname = 'uq_dd_path_dept'")
+        idx2 = repo.check_table_indexes("document_departments", "uq_dd_path_dept")
         if not idx2:
             issues.append("document_departments 缺唯一索引 uq_dd_path_dept")
     except Exception:
@@ -57,11 +54,10 @@ async def health(user: str = Depends(verify_token)):
     db_kind = "PostgreSQL" if "postgresql" in os.getenv("DATABASE_URL_SYNC", "") else "SQLite/回退"
     counts = {}
     try:
-        from repository import DBRepository
-        repo = DBRepository()
+        from repository import get_repo
+        repo = get_repo()
         for table in ("faqs", "documents", "reports", "keywords_v2", "keyword_mappings"):
-            row = repo._execute_one(f"SELECT COUNT(*) AS c FROM {table}")
-            counts[table] = row["c"] if row else None
+            counts[table] = repo.get_table_count(table)
     except Exception:
         counts = {"error": "数据库不可达"}
 

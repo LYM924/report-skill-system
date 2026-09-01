@@ -30,6 +30,7 @@ def _load_env():
 
 
 _load_env()
+os.environ["_KB_ENV_LOADED"] = "1"  # 标记 .env 已加载，供 db_repo.py 兜底检测
 
 
 class Settings:

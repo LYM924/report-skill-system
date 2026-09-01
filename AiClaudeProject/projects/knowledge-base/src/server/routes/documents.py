@@ -18,7 +18,7 @@ from pydantic import BaseModel
 import main
 from auth import verify_token
 from config import settings
-from repository import DBRepository
+from repository import get_repo
 from repository.dept_mapping import get_dept_path, get_submodule_path
 from service.paths import safe_data_path
 from routes.health import record_write_failure
@@ -46,30 +46,13 @@ def _get_module_map():
     global _mod_cache
     if _mod_cache is not None:
         return _mod_cache
-    from repository import DBRepository
-    repo = DBRepository()
-    rows = repo._execute("""
-        SELECT m.name as module_name,
-               p.name as product_name, pl.name as product_line_name,
-               d.name as dept_name, m.business_domain
-        FROM modules m
-        LEFT JOIN products p ON m.product_id = p.id
-        LEFT JOIN product_lines pl ON p.product_line_id = pl.id
-        LEFT JOIN departments d ON m.department_id = d.id
-    """)
-    _mod_cache = {}
-    for r in rows:
-        if r["module_name"]:
-            _mod_cache[r["module_name"]] = {
-                "product": r["product_name"] or "",
-                "product_line": r["product_line_name"] or "",
-                "dept": r["dept_name"] or "",
-                "domain": r["business_domain"] or "",
-            }
+    from repository import get_repo
+    repo = get_repo()
+    _mod_cache = repo.get_module_product_map()
     return _mod_cache
 
 
-def _resolve_kw_ids(dept: str, sub_module: str, repo: DBRepository,
+def _resolve_kw_ids(dept: str, sub_module: str, repo,
                     dept_id: int = 0, module_id: int = 0):
     """解析关键词写入所需的 module_id/dept_id（NULL 安全）
 
@@ -92,61 +75,37 @@ async def list_documents(
     page_size: int = Query(200, le=500),
     user: str = Depends(verify_token),
 ):
-    """文档列表（module 过滤 / dept_id 部门筛选，按文件修改时间倒序）"""
-    if main.search_engine is None:
-        return {"documents": [], "total": 0}
+    """文档列表（DB 直查，按 updated_at 倒序）
 
+    数据源：documents 表（is_deleted=FALSE），不再遍历内存 kb_docs，
+    保证列表与 DB 实时一致，消除"列表显示但操作 404"的不一致风险。
+    """
     mod_map = _get_module_map()
+    repo = get_repo()
 
-    # dept_id 筛选：document_departments 关联表（含子部门递归）
-    dept_paths = None
-    if dept_id:
-        try:
-            repo = DBRepository()
-            dept_paths = set(repo.get_documents_by_department(int(dept_id)))
-        except Exception:
-            dept_paths = None
+    # DB 直查：dept_id 过滤走 document_departments 关联表
+    did = int(dept_id) if dept_id and dept_id.isdigit() else 0
+    rows = repo.get_documents_page(dept_id=did)
 
     docs = []
-    for doc in main.search_engine.kb_docs:
-        doc_path = doc.get("path", "")
+    for row in rows:
+        doc_path = row.get("path", "")
+        # 排除 FAQ 路径（FAQ 有独立列表）
         if doc_path.startswith("data/faq/"):
             continue
-        if dept_paths is not None and doc_path not in dept_paths:
-            continue
 
-        full_path = safe_data_path(doc_path)
-        keywords = []
-        updated = ""
-        fm_title = ""
-        if full_path and full_path.exists():
-            try:
-                mtime = os.path.getmtime(str(full_path))
-                updated = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
-            except Exception:
-                pass
-            try:
-                text = full_path.read_text(encoding="utf-8")
-                fm_match = re.match(r"^---\s*\n(.*?)\n---", text, re.DOTALL)
-                if fm_match:
-                    for line in fm_match.group(1).split("\n"):
-                        line = line.strip()
-                        if line.startswith("keywords:"):
-                            kw_str = line.split(":", 1)[1].strip()
-                            try:
-                                keywords = ast.literal_eval(kw_str)
-                            except Exception:
-                                keywords = [k.strip().strip("'\"") for k in kw_str.strip("[]").split(",") if k.strip()]
-                        elif line.startswith("title:"):
-                            fm_title = line.split(":", 1)[1].strip()
-            except Exception:
-                pass
+        doc_title = row.get("title", "") or ""
+        doc_module = row.get("module") or ""
+        doc_dept = row.get("dept") or ""
+        doc_product = row.get("product") or ""
+        doc_product_line = row.get("product_line") or ""
+        doc_keywords = row.get("keywords") or []
+        # DB keywords 可能是 list 或逗号分隔字符串
+        if isinstance(doc_keywords, str):
+            doc_keywords = [k.strip() for k in doc_keywords.split(",") if k.strip()]
 
-        doc_title = doc.get("title", "")
+        # 产品/产品线：优先用 DB 记录，空时从模块表补充
         cat = {}
-        # 优先用文档记录中的 module 名（documents 表），失败再按标题/路径子串匹配。
-        # 记录命中的模块名（module 过滤依赖它；原 cat 字典无 module 字段导致按模块查看永远为空）
-        doc_module = doc.get("module") or ""
         if doc_module:
             info = mod_map.get(doc_module)
             if info:
@@ -159,33 +118,40 @@ async def list_documents(
                     cat["module"] = mod_name
                     break
 
-        name = doc_title or fm_title
-        # 无意义标题（数字-数字-数字）时取 H1
-        if not name or (len(name) < 12 and any(c.isdigit() for c in name) and name.count("-") >= 2):
+        # 修改时间：优先取 DB updated_at，回退取文件 mtime
+        updated = ""
+        full_path = safe_data_path(doc_path)
+        if full_path and full_path.exists():
             try:
-                text = full_path.read_text(encoding="utf-8")
-                if fm_title and not (len(fm_title) < 12 and all(c in "0123456789 -·." for c in fm_title)):
-                    name = fm_title
-                else:
+                mtime = os.path.getmtime(str(full_path))
+                updated = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
+            except Exception:
+                pass
+
+        # 无意义标题（数字-数字-数字）时取文件 H1
+        name = doc_title
+        if not name or (len(name) < 12 and any(c.isdigit() for c in name) and name.count("-") >= 2):
+            if full_path and full_path.exists():
+                try:
+                    text = full_path.read_text(encoding="utf-8")
                     for line in text.split("\n"):
                         if line.startswith("# ") and not line.startswith("## "):
                             h1 = line[2:].strip()
                             if h1 and not (len(h1) < 12 and all(c in "0123456789 -·." for c in h1)):
                                 name = h1
                                 break
-            except Exception:
-                pass
+                except Exception:
+                    pass
 
         d = {
             "id": doc_path,
             "name": name or doc_path.split("/")[-1],
             "path": doc_path,
-            # 部门优先取文档自身（documents 表/frontmatter），模块表的部门是旧组织架构（如合同→乐采事业部）
-            "dept": doc.get("dept") or cat.get("dept", ""),
-            "product": cat.get("product", doc.get("domain", "")),
-            "product_line": cat.get("product_line", ""),
-            "module": cat.get("module", ""),
-            "keywords": keywords,
+            "dept": doc_dept or cat.get("dept", ""),
+            "product": cat.get("product", doc_product),
+            "product_line": cat.get("product_line", doc_product_line),
+            "module": cat.get("module", doc_module),
+            "keywords": doc_keywords,
             "updated": updated,
         }
 
@@ -225,11 +191,25 @@ def _rewrite_images(content: str, doc_dir: str) -> str:
 
 @router.get("/document")
 async def get_document(path: str = Query(..., description="文档路径"), user: str = Depends(verify_token)):
-    """文档详情（正文 + frontmatter，图片改走代理）"""
+    """文档详情（正文 + frontmatter，图片改走代理）
+
+    数据源优先级：文件系统 → DB documents.content 回退。
+    文件缺失不直接 404，改从 DB 读取（与 FAQ 详情修复逻辑一致）。
+    """
     full_path = safe_data_path(path)
-    if not full_path or not full_path.exists():
-        return JSONResponse({"error": "文档不存在"}, status_code=404)
-    content = full_path.read_text(encoding="utf-8")
+    if full_path and full_path.exists():
+        content = full_path.read_text(encoding="utf-8")
+    else:
+        # 文件缺失：回退从 DB 读取
+        repo = get_repo()
+        db_row = repo.get_document_by_path(path)
+        if db_row and db_row.get("content"):
+            content = db_row["content"]
+            if full_path:
+                logging.getLogger(__name__).warning("文档文件已缺失，回退读 DB: %s", path)
+        else:
+            return JSONResponse({"error": "文档不存在"}, status_code=404)
+
     fm = {}
     fm_match = re.match(r"^---\s*\n(.*?)\n---", content, re.DOTALL)
     if fm_match:
@@ -317,14 +297,28 @@ async def update_document(
     new_filename: str = Query(""),
     user: str = Depends(verify_token),
 ):
-    """文档元数据更新：改名 / frontmatter 字段 / 部门关联（document_departments）"""
+    """文档元数据更新：改名 / frontmatter 字段 / 部门关联（document_departments）
+
+    DB 优先原则：
+    - 文件缺失时不直接 404，先查 DB 有记录则继续（允许后续重建恢复文件）
+    - 改名后同步更新 DB documents.path 和内存 kb_docs（防三方不一致）
+    """
     full_path = safe_data_path(path)
-    if not full_path or not full_path.exists():
-        return JSONResponse({"error": "文档不存在"}, status_code=404)
+    file_exists = full_path and full_path.exists()
+
+    # 文件缺失时检查 DB 是否有记录（有记录 = 可操作，缺失文件靠重建恢复）
+    if not file_exists:
+        repo = get_repo()
+        db_row = repo.get_document_by_path(path)
+        if not db_row:
+            return JSONResponse({"error": "文档不存在"}, status_code=404)
+        logging.getLogger(__name__).warning("文档文件已缺失，按 DB 记录继续更新: %s", path)
 
     renamed = False
-    # 1. 改名
-    if new_filename:
+    new_path = path  # 追踪最终路径
+
+    # 1. 改名（仅文件存在时可执行）
+    if new_filename and file_exists:
         new_name = new_filename.strip()
         if not new_name.endswith(".md"):
             new_name += ".md"
@@ -336,40 +330,66 @@ async def update_document(
         full_path.rename(target)
         full_path = target
         renamed = True
+        new_path = str(full_path.relative_to(settings.PROJECT_DIR))
+    elif new_filename and not file_exists:
+        # 文件缺失但用户想改名：仅更新 DB 中的 path 字段
+        new_name = new_filename.strip()
+        if not new_name.endswith(".md"):
+            new_name += ".md"
+        if "/" in new_name or "\\" in new_name:
+            return JSONResponse({"error": "文件名不能包含路径分隔符"}, status_code=422)
+        old_dir = os.path.dirname(path)
+        new_path = (old_dir + "/" + new_name) if old_dir else new_name
+        renamed = True
 
-    # 2. frontmatter 更新
-    content = full_path.read_text(encoding="utf-8")
-    new_title = new_filename.replace(".md", "") if new_filename else ""
-    content = _update_frontmatter(content, dept, product, keywords, new_title)
-    full_path.write_text(content, encoding="utf-8")
+    # 2. frontmatter 更新（仅文件存在时）
+    if file_exists:
+        content = full_path.read_text(encoding="utf-8")
+        new_title = new_filename.replace(".md", "") if new_filename else ""
+        content = _update_frontmatter(content, dept, product, keywords, new_title)
+        full_path.write_text(content, encoding="utf-8")
 
-    # 3. 部门关联（document_departments）
+    # 3. DB 同步：改名后更新 DB path + 重新 save_document（确保 DB 与文件一致）
+    repo = get_repo()
+    if renamed and new_path != path:
+        repo.update_document_path(path, new_path)
+        # 同步内存 kb_docs 中的 path
+        if main.search_engine is not None:
+            main.search_engine.remove_kb_doc(path)
+            # 从 DB 重新读取该文档的元数据加入内存
+            db_row = repo.get_document_by_path(new_path)
+            if db_row:
+                main.search_engine.add_kb_doc({
+                    "path": new_path,
+                    "title": db_row.get("title", ""),
+                    "dept": db_row.get("dept", ""),
+                    "module": db_row.get("module", ""),
+                    "domain": db_row.get("module", ""),
+                    "content_sample": (db_row.get("content") or "")[:5000],
+                })
+
+    # 4. 部门关联（document_departments）
     if dept_ids:
         try:
-            repo = DBRepository()
-            repo.set_document_departments(str(full_path.relative_to(settings.PROJECT_DIR)),
+            repo.set_document_departments(new_path,
                                           [int(i) for i in dept_ids.split(",") if i.strip().isdigit()])
         except Exception:
             record_write_failure("doc_dept_link")
 
-    # 4. 后台重建索引
+    # 5. 后台重建索引（确保 BM25/向量索引与 DB 一致）
     def _rebuild():
         try:
             if main.search_engine is not None:
-                import shutil
-                cache_dir = settings.RUNTIME_DIR / "cache"
-                for f in cache_dir.glob("*"):
-                    if f.is_file():
-                        f.unlink()
-                # 先完整构建新引擎，再原子替换，避免加载期间请求打到半成品引擎
-                new_engine = type(main.search_engine)()
-                new_engine.load_all()
-                main.search_engine = new_engine
+                main.search_engine = main.search_engine.rebuild_all()
         except Exception:
             pass
     threading.Thread(target=_rebuild, daemon=True).start()
 
-    return {"ok": True, "path": str(full_path.relative_to(settings.PROJECT_DIR)), "renamed": renamed}
+    # 失效相关缓存（保证写后立即读一致）
+    from service.cache import cache_delete, DOCS_WRITE_KEYS
+    cache_delete(*DOCS_WRITE_KEYS)
+
+    return {"ok": True, "path": new_path, "renamed": renamed}
 
 
 def _body_is_intact(body: str, final: str) -> bool:
@@ -498,14 +518,12 @@ async def _upload_document(filename: str, content: str, dept: str, module: str,
         return {"error": "content 必填"}
     # 清理 NUL 字节：PG text 字段拒绝 \x00，会导致 documents 写入静默失败（文档不可见）
     content = content.replace("\x00", "")
-    repo = DBRepository()
+    repo = get_repo()
     # 前端携带 ID 时：ID 优先，名称缺失则按 ID 反查
     if dept_id and not dept:
-        row = repo._execute_one("SELECT name FROM departments WHERE id = ?", (dept_id,))
-        dept = row["name"] if row else ""
+        dept = repo.get_department_name(dept_id)
     if module_id and not module:
-        row = repo._execute_one("SELECT name FROM modules WHERE id = ?", (module_id,))
-        module = row["name"] if row else ""
+        module = repo.get_module_name(module_id)
     dept = dept or "数智财务组"
     module = module or "浙里报"
 
@@ -615,22 +633,17 @@ imported: {now_iso}
     # kb_docs 由 _load_knowledge_base 从 documents 表优先加载（有数据时不扫文件系统），
     # 部门知识库视图按 document_departments 过滤——不写这两处，上传的文档任何视图都看不到。
     try:
-        repo._execute_write(
-            "INSERT INTO documents "
-            "(path, filename, title, content, dept, dept_id, module, module_id, product, product_line, date, keywords, imported_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, now(), now()) "
-            "ON CONFLICT (path) DO UPDATE SET "
-            "filename = EXCLUDED.filename, title = EXCLUDED.title, content = EXCLUDED.content, "
-            "dept = EXCLUDED.dept, dept_id = EXCLUDED.dept_id, module = EXCLUDED.module, "
-            "module_id = EXCLUDED.module_id, product = EXCLUDED.product, product_line = EXCLUDED.product_line, "
-            "date = EXCLUDED.date, keywords = EXCLUDED.keywords, updated_at = now()",
-            (rel_path, safe_name, title, final_content, dept, d_id, module, m_id,
-             product, product_line, today, kw_list)
-        )
+        repo.save_document({
+            "path": rel_path, "filename": safe_name, "title": title,
+            "content": final_content, "dept": dept, "dept_id": d_id,
+            "module": module, "module_id": m_id,
+            "product": product, "product_line": product_line,
+            "date": today, "keywords": kw_list,
+        })
         if d_id:
             repo.set_document_departments(rel_path, [d_id])
         # 回读校验：documents 行必须真实存在，否则文档在视图里永远不可见
-        if not repo._execute_one("SELECT id FROM documents WHERE path = ?", (rel_path,)):
+        if not repo.document_exists(rel_path):
             logging.getLogger(__name__).error("documents 行回读校验失败: %s", rel_path)
             record_write_failure("document_write_verify")
     except Exception as e:
@@ -642,8 +655,7 @@ imported: {now_iso}
     try:
         main.search_engine.add_to_index(rel_path, final_content, dept, module)
         if main.search_engine is not None:
-            main.search_engine.kb_docs = [d for d in main.search_engine.kb_docs if d.get("path") != rel_path]
-            main.search_engine.kb_docs.append({
+            main.search_engine.add_kb_doc({
                 "path": rel_path,
                 "dept": dept,
                 "dept3": dept,
@@ -658,18 +670,15 @@ imported: {now_iso}
     except Exception:
         def _rebuild():
             try:
-                import shutil
-                cache_dir = settings.RUNTIME_DIR / "cache"
-                for f in cache_dir.glob("*"):
-                    if f.is_file():
-                        f.unlink()
-                # 先完整构建新引擎，再原子替换，避免加载期间请求打到半成品引擎
-                new_engine = type(main.search_engine)()
-                new_engine.load_all()
-                main.search_engine = new_engine
+                if main.search_engine is not None:
+                    main.search_engine = main.search_engine.rebuild_all()
             except Exception:
                 pass
         threading.Thread(target=_rebuild, daemon=True).start()
+
+    # 失效相关缓存（保证写后立即读一致）
+    from service.cache import cache_delete, DOCS_WRITE_KEYS
+    cache_delete(*DOCS_WRITE_KEYS)
 
     return {"ok": True, "path": rel_path, "filename": safe_name, "dept": dept, "module": module}
 

@@ -3,7 +3,10 @@ from typing import Optional
 from sqlalchemy import String, Integer, Text
 from sqlalchemy.orm import Mapped, mapped_column
 from datetime import datetime
-from database import Base
+from sqlalchemy.orm import DeclarativeBase
+
+class Base(DeclarativeBase):
+    pass
 
 
 class FAQ(Base):

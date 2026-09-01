@@ -6,11 +6,12 @@
 """
 import base64
 import hashlib
+import json
 import os
 import secrets
 
 from config import settings
-from repository import DBRepository
+from repository import get_repo
 
 
 # ══════ 密码 ══════
@@ -59,7 +60,7 @@ def decrypt_key(enc: str) -> str:
 # ══════ 用户与配置读写 ══════
 
 def get_user(username: str) -> dict:
-    repo = DBRepository()
+    repo = get_repo()
     row = repo._execute_one(
         "SELECT id, username, password_hash, role FROM users WHERE username = ? AND is_deleted = FALSE",
         (username,))
@@ -67,7 +68,7 @@ def get_user(username: str) -> dict:
 
 
 def create_user(username: str, password: str, role: str = "user") -> dict:
-    repo = DBRepository()
+    repo = get_repo()
     try:
         repo._execute_write(
             "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
@@ -78,7 +79,7 @@ def create_user(username: str, password: str, role: str = "user") -> dict:
 
 
 def list_users() -> list:
-    repo = DBRepository()
+    repo = get_repo()
     rows = repo._execute(
         "SELECT id, username, role, created_at FROM users WHERE is_deleted = FALSE ORDER BY id")
     return [{"id": r["id"], "username": r["username"], "role": r["role"],
@@ -86,7 +87,7 @@ def list_users() -> list:
 
 
 def update_user_password(username: str, new_password: str) -> bool:
-    repo = DBRepository()
+    repo = get_repo()
     exists = repo._execute_one("SELECT id FROM users WHERE username = ? AND is_deleted = FALSE", (username,))
     if not exists:
         return False
@@ -96,7 +97,7 @@ def update_user_password(username: str, new_password: str) -> bool:
 
 
 def delete_user(username: str) -> bool:
-    repo = DBRepository()
+    repo = get_repo()
     exists = repo._execute_one("SELECT id FROM users WHERE username = ? AND is_deleted = FALSE", (username,))
     if not exists:
         return False
@@ -151,10 +152,11 @@ PROVIDER_PRESETS = [
      "base_url": "https://api.anthropic.com",
      "models": ["claude-sonnet-4-20250514", "claude-haiku-4-5-20251001"],
      "needs_key": True, "note": "Anthropic 官方"},
-    {"provider": "cai-gateway", "name": "公司AI网关（GLM映射）", "protocol": "anthropic",
-     "base_url": "https://ai-platform.cai-inc.com/api/biz-ai/ai-model/api/11/apps/anthropic",
-     "models": ["glm-5.1", "glm-4.5-air"],
-     "needs_key": True, "note": "公司AI平台申领的AppKey，网关已映射至GLM模型（仅支持Bearer鉴权，请勿修改网关地址）"},
+    {"provider": "cai-gateway", "name": "公司AI网关（灵龙TokenPlan）", "protocol": "anthropic",
+     "base_url": "https://ai-gateway.prod.cai-inc.com/api/biz-ai/ai-llm/anthropic",
+     "models": ["Bailian-GLM5.2", "Bailian-GLM5.1", "DeepSeek-deepseek-v4-flash", "Bailian-Qwen3.6-Flash"],
+     "needs_key": True, "note": "灵龙申领AppKey（linglong.cai-inc.com）。模型名须带供应商前缀且与可用列表完全一致否则403；仅限公司内网/VPN"},
+
     {"provider": "ollama", "name": "Ollama（本地模型）", "protocol": "openai",
      "base_url": "http://localhost:11434/v1",
      "models": ["qwen2.5:14b", "llama3.1:8b"],
@@ -171,6 +173,47 @@ def _shared_env_path() -> str:
     return os.path.expanduser(os.getenv("SHARED_AI_ENV_FILE", "~/.ai_gateway.env"))
 
 
+def _claude_settings_path() -> str:
+    """Claude Code settings.json 路径（通义灵码等 IDE 内 Claude Code 读此文件获取配置）"""
+    return os.path.expanduser("~/.claude/settings.json")
+
+
+def _sync_claude_settings(model: str, base_url: str, api_key: str) -> None:
+    """同步 AI 配置到 Claude Code settings.json（合并 env，保留其他已有字段）"""
+    path = _claude_settings_path()
+    new_env = {
+        "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+        "ANTHROPIC_BASE_URL": base_url,
+        "ANTHROPIC_AUTH_TOKEN": api_key,
+        "ANTHROPIC_MODEL": model,
+        "ANTHROPIC_DEFAULT_OPUS_MODEL": model,
+        "ANTHROPIC_DEFAULT_SONNET_MODEL": model,
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL": model,
+        "CLAUDE_CODE_SUBAGENT_MODEL": model,
+        "CLAUDE_MODEL": model,
+        "API_TIMEOUT_MS": "3000000",
+        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+        "CLAUDE_CODE_EFFORT_LEVEL": "max",
+    }
+    try:
+        # 读取已有配置，保留非 env 字段
+        existing = {}
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                existing = json.load(f)
+        # 合并 env：新值覆盖旧值，保留非 AI 相关的 env 条目
+        old_env = existing.get("env", {})
+        old_env.update(new_env)
+        existing["env"] = old_env
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(existing, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+        os.chmod(path, 0o600)
+        print(f"[ai_config] 已同步 Claude Code settings.json: {path}")
+    except Exception as e:
+        print(f"[ai_config] 同步 Claude Code settings.json 失败: {e}")
+
+
 def sync_shared_env(username: str, model: str, base_url: str, api_key: str, protocol: str) -> None:
     """管理员保存 AI 配置后，将配置写入共享环境文件，实现全机联动。
 
@@ -178,9 +221,11 @@ def sync_shared_env(username: str, model: str, base_url: str, api_key: str, prot
     - 仅同步 anthropic 协议（Claude Code 只认 Anthropic 协议，openai 协议的
       key 无法给终端使用，跳过并保留原文件）；
     - 同步失败只告警不阻断保存。
+    - 同时同步到 ~/.claude/settings.json（供通义灵码等 IDE 内 Claude Code 读取）。
     """
     if not is_admin(username) or protocol != "anthropic":
         return
+    # 1) 写 ~/.ai_gateway.env（终端 source 用）
     path = _shared_env_path()
     content = (
         "# 本机统一 AI 大模型配置（唯一来源：知识库配置中心「管理员保存」时由后端同步写入）\n"
@@ -203,12 +248,14 @@ def sync_shared_env(username: str, model: str, base_url: str, api_key: str, prot
         print(f"[ai_config] 已同步共享AI环境文件: {path}")
     except Exception as e:
         print(f"[ai_config] 同步共享AI环境文件失败: {e}")
+    # 2) 写 ~/.claude/settings.json（通义灵码等 IDE 内 Claude Code 用）
+    _sync_claude_settings(model, base_url or "", api_key or "")
 
 
 
 def get_ai_config(username: str) -> dict:
     """返回该用户的 AI 配置（api_key 解密后的完整值）"""
-    repo = DBRepository()
+    repo = get_repo()
     row = repo._execute_one(
         "SELECT model, base_url, api_key_enc, max_tokens, provider, protocol FROM ai_configs WHERE username = ?",
         (username,))
@@ -239,7 +286,7 @@ def get_ai_config_masked(username: str) -> dict:
 def save_ai_config(username: str, model: str, base_url: str, api_key: str, max_tokens: int,
                    provider: str = "custom", protocol: str = "anthropic") -> dict:
     """保存配置。api_key 传空 = 保留已有密钥（前端脱敏回显后重新保存的场景）"""
-    repo = DBRepository()
+    repo = get_repo()
     model_final = model or "deepseek-v4-pro"
     if api_key:
         enc = encrypt_key(api_key)

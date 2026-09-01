@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from auth import verify_token
-from repository import DBRepository
+from repository import get_repo
 from routes.health import record_write_failure
 
 router = APIRouter(tags=["关键词"])
@@ -54,7 +54,7 @@ async def list_keywords(
     user: str = Depends(verify_token),
 ):
     """关键词列表（DB 直查，按关键词聚合映射）"""
-    repo = DBRepository()
+    repo = get_repo()
     rows = repo.get_all_keywords_v2()  # dict: keyword -> [entry...]
 
     grouped = {}
@@ -96,7 +96,7 @@ async def add_keyword(body: KeywordCreate, user: str = Depends(verify_token)):
     if not body.module and not body.module_id:
         return JSONResponse({"error": "module 或 module_id 至少一个"}, status_code=422)
 
-    repo = DBRepository()
+    repo = get_repo()
     module_id = body.module_id or 0
     module_name = body.module or ""
     if not module_id and module_name:
@@ -113,15 +113,11 @@ async def add_keyword(body: KeywordCreate, user: str = Depends(verify_token)):
 
     # 同步内存 keyword_map（搜索路由使用）+ 落盘缓存
     if main.search_engine is not None:
-        main.search_engine.keyword_map[keyword].append({
+        main.search_engine.add_keyword_to_map(keyword, {
             "module": module_name, "dept": body.dept or "", "domain": "", "kb_path": "",
             "note": "手动添加", "mapping_id": result.get("mapping_id"),
             "keyword_id": result.get("keyword_id"),
         })
-        try:
-            main.search_engine.save_cache()
-        except Exception:
-            pass
     return {"ok": True, "keyword": keyword, "mapping_id": result.get("mapping_id"),
             "keyword_id": result.get("keyword_id")}
 
@@ -133,7 +129,7 @@ async def update_keyword(body: KeywordUpdate, user: str = Depends(verify_token))
     if not body.mapping_id:
         return JSONResponse({"error": "mapping_id 必填"}, status_code=422)
 
-    repo = DBRepository()
+    repo = get_repo()
     module_id = body.module_id
     module_name = body.module or ""
     if module_name and module_id in (None, 0):
@@ -154,26 +150,23 @@ async def update_keyword(body: KeywordUpdate, user: str = Depends(verify_token))
         status = 409 if "已存在" in result["error"] else 404
         return JSONResponse(result, status_code=status)
 
-    # 同步内存：改名迁移 key、更新 entry 字段
+    # 同步内存：改名迁移 key / 仅更新 entry 字段
     if main.search_engine is not None:
-        km = main.search_engine.keyword_map
-        old_kw = None
-        for kw, entries in km.items():
-            if any(e.get("mapping_id") == body.mapping_id for e in entries):
-                old_kw = kw
-                break
-        new_kw = (body.keyword or old_kw or "").strip()
-        if old_kw is not None and new_kw:
-            entries = km.pop(old_kw, [])
-            for e in entries:
-                if e.get("mapping_id") == body.mapping_id:
-                    e["module"] = module_name or e.get("module", "")
-                    e["dept"] = body.dept or e.get("dept", "")
-            km.setdefault(new_kw, []).extend(entries)
-            try:
-                main.search_engine.save_cache()
-            except Exception:
-                pass
+        new_kw = (body.keyword or "").strip()
+        if new_kw:
+            main.search_engine.rename_keyword_in_map(
+                body.mapping_id, new_kw,
+                module=module_name, dept=body.dept or "",
+            )
+        else:
+            # 不改名只改 module/dept：rename 内部不触发，需单独更新 entry 字段
+            main.search_engine.update_mapping_in_map(
+                body.mapping_id,
+                module=module_name, dept=body.dept or "",
+            )
+    # 失效相关缓存
+    from service.cache import cache_delete, KEYWORD_WRITE_KEYS
+    cache_delete(*KEYWORD_WRITE_KEYS)
     return {"ok": True, "mapping_id": body.mapping_id, "keyword": body.keyword}
 
 
@@ -184,34 +177,19 @@ async def delete_keyword(body: KeywordDelete, user: str = Depends(verify_token))
     if not body.mapping_id and not body.keyword_id:
         return JSONResponse({"error": "mapping_id 或 keyword_id 至少一个"}, status_code=422)
 
-    repo = DBRepository()
+    repo = get_repo()
     if body.mapping_id:
         ok = repo.delete_mapping(body.mapping_id)
         if not ok:
             return JSONResponse({"error": f"映射 {body.mapping_id} 不存在或已删除"}, status_code=404)
         # 内存同步：移除该映射
         if main.search_engine is not None:
-            km = main.search_engine.keyword_map
-            for kw in list(km.keys()):
-                km[kw] = [e for e in km[kw] if e.get("mapping_id") != body.mapping_id]
-                if not km[kw]:
-                    del km[kw]
-            try:
-                main.search_engine.save_cache()
-            except Exception:
-                pass
+            main.search_engine.remove_mapping_from_map(body.mapping_id)
         return {"ok": True, "mapping_id": body.mapping_id}
     else:
         ok = repo.delete_keyword(body.keyword_id)
         if not ok:
             return JSONResponse({"error": f"关键词 {body.keyword_id} 不存在或已删除"}, status_code=404)
         if main.search_engine is not None:
-            km = main.search_engine.keyword_map
-            for kw in list(km.keys()):
-                if any(e.get("keyword_id") == body.keyword_id for e in km[kw]):
-                    del km[kw]
-            try:
-                main.search_engine.save_cache()
-            except Exception:
-                pass
+            main.search_engine.remove_keyword_from_map(body.keyword_id)
         return {"ok": True, "keyword_id": body.keyword_id}

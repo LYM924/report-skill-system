@@ -7,8 +7,8 @@
 """
 import datetime
 import json
+import logging
 import re
-import threading
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, UploadFile
 from fastapi.responses import JSONResponse
@@ -17,7 +17,7 @@ from pydantic import BaseModel
 import main
 from auth import verify_token
 from config import settings
-from repository import DBRepository
+from repository import get_repo
 from repository.base import FAQ
 from repository.dept_mapping import get_dept_path, get_submodule_path
 from service.paths import safe_data_path
@@ -33,27 +33,16 @@ class ImportBody(BaseModel):
     pass  # 导入走 multipart，占位
 
 
-def _rebuild_vector_in_background():
-    """后台线程重建向量索引（耗时操作）"""
-    def _run():
-        try:
-            if main.search_engine is not None:
-                main.search_engine.rebuild_vector_index_async()
-        except Exception:
-            pass
-    t = threading.Thread(target=_run, daemon=True)
-    t.start()
-
-
 def _reload_after_faq_change(rebuild_vector: bool = True):
-    """FAQ 变更后：同步重建 FAQ 内存结构+BM25，向量后台重建"""
+    """FAQ 变更后：重建 FAQ 内存结构 + BM25 + 可选后台重建向量索引 + 失效缓存"""
     if main.search_engine is not None:
-        main.search_engine.reload_faqs()
-    if rebuild_vector:
-        _rebuild_vector_in_background()
+        main.search_engine.after_faq_change(rebuild_vector=rebuild_vector)
+    # 失效相关缓存（保证写后立即读一致）
+    from service.cache import cache_delete, FAQ_WRITE_KEYS
+    cache_delete(*FAQ_WRITE_KEYS)
 
 
-def _resolve_kw_ids(dept: str, sub_module: str, repo: DBRepository,
+def _resolve_kw_ids(dept: str, sub_module: str, repo,
                     dept_id: int = 0, module_id: int = 0):
     """解析关键词写入所需的 module_id/dept_id（外键，NULL 安全）
 
@@ -70,62 +59,105 @@ def _resolve_kw_ids(dept: str, sub_module: str, repo: DBRepository,
 
 @router.get("/faq")
 async def list_faqs(id: str = Query(""), user: str = Depends(verify_token)):
-    """FAQ 列表 / 详情"""
-    if main.search_engine is None:
-        return {"faqs": [], "error": "搜索引擎未就绪"}
+    """FAQ 列表 / 详情（DB 直查，保证与数据库实时一致）
+
+    列表不再遍历内存 faq_docs，直接查 faqs 表；
+    详情优先读文件，文件缺失回退读 DB faq_answer。
+    """
+    repo = get_repo()
 
     if id:
-        for doc in main.search_engine.faq_docs:
-            if doc.get("faq_id") == id:
-                p = safe_data_path(doc["path"])
-                if p and p.exists():
-                    raw = p.read_text(encoding="utf-8")
-                    content = raw
-                    if raw.startswith("---"):
-                        parts = raw.split("---", 2)
-                        if len(parts) >= 3:
-                            content = parts[2].lstrip("\n")
-                    return {
-                        "title": doc.get("title", ""),
-                        "dept": doc.get("dept", ""),
-                        "sub_module": doc.get("sub_module", ""),
-                        "keywords": doc.get("keywords", []),
-                        "path": doc.get("path", ""),
-                        "content": content,
-                        "id": id,
-                    }
-        return JSONResponse({"error": "FAQ 不存在"}, status_code=404)
+        # 详情：先从 DB 查元数据
+        row = repo._execute_one(
+            "SELECT faq_code, faq_title, dept, sub_module, module, tags, file_path, faq_answer "
+            "FROM faqs WHERE faq_code = :code AND is_deleted = FALSE",
+            {"code": id}
+        )
+        if not row:
+            return JSONResponse({"error": "FAQ 不存在"}, status_code=404)
 
+        content = ""
+        file_path = row.get("file_path", "")
+        p = safe_data_path(file_path) if file_path else None
+        if p and p.exists():
+            raw = p.read_text(encoding="utf-8")
+            if raw.startswith("---"):
+                parts = raw.split("---", 2)
+                if len(parts) >= 3:
+                    content = parts[2].lstrip("\n")
+                else:
+                    content = raw
+            else:
+                content = raw
+        else:
+            # 文件缺失时回退读 DB 的 faq_answer
+            if row.get("faq_answer"):
+                content = row["faq_answer"]
+            else:
+                logging.getLogger("faq").warning("FAQ 文件和 DB 均缺失正文: %s", id)
+
+        # tags 可能是 list 或逗号分隔字符串
+        tags = row.get("tags") or []
+        if isinstance(tags, str):
+            tags = [t.strip() for t in tags.split(",") if t.strip()]
+
+        return {
+            "title": row.get("faq_title", ""),
+            "dept": row.get("dept", ""),
+            "sub_module": row.get("sub_module", ""),
+            "module": row.get("module", ""),
+            "keywords": tags,
+            "path": file_path,
+            "content": content,
+            "id": id,
+        }
+
+    # 列表：DB 直查
+    rows = repo.get_faqs_page()
     faqs = []
-    for doc in main.search_engine.faq_docs:
+    for row in rows:
+        tags = row.get("tags") or []
+        if isinstance(tags, str):
+            tags = [t.strip() for t in tags.split(",") if t.strip()]
         faqs.append({
-            "id": doc.get("faq_id", ""),
-            "title": doc.get("title", ""),
-            "dept": doc.get("dept", ""),
-            "sub_module": doc.get("sub_module", ""),
-            "module": doc.get("module", ""),
-            "keywords": doc.get("keywords", []),
-            "path": doc.get("path", ""),
+            "id": row.get("faq_code", ""),
+            "title": row.get("faq_title", ""),
+            "dept": row.get("dept", ""),
+            "sub_module": row.get("sub_module", ""),
+            "module": row.get("module", ""),
+            "keywords": tags,
+            "path": row.get("file_path", ""),
         })
     return {"faqs": faqs}
 
 
 @router.get("/faq/delete")
 async def delete_faq(path: str = Query(...), user: str = Depends(verify_token)):
-    """删除 FAQ：物理删文件（限 data/faq/ 内）+ DB 软删除 + 重建索引"""
+    """删除 FAQ：DB 软删除（主）+ 物理删文件（辅，文件已不存在也继续）+ 重建索引
+
+    修复：不再先检查文件是否存在再决定能否删除。
+    数据源以 DB 为主——DB 有记录就能软删除，文件丢失只是日志告警不阻断。
+    """
     p = safe_data_path(path)
     if not p or not str(p).startswith(str(settings.DATA_DIR / "faq")):
         return JSONResponse({"error": "路径非法"}, status_code=400)
-    if not p.exists():
-        return JSONResponse({"error": "FAQ 不存在"}, status_code=404)
 
-    p.unlink()
-    repo = DBRepository()
+    # DB 软删除（主操作）
+    repo = get_repo()
     try:
-        repo.delete_faq(path)
+        result = repo.delete_faq(path)
+        if not result.get("ok"):
+            return JSONResponse({"error": result.get("error", "FAQ 不存在")}, status_code=404)
     except Exception:
         record_write_failure("faq_delete")
         return JSONResponse({"error": "FAQ 删除失败（数据库）"}, status_code=500)
+
+    # 物理删文件（辅操作，文件已不存在也正常）
+    if p.exists():
+        p.unlink()
+    else:
+        import logging
+        logging.getLogger("faq").warning(f"FAQ 文件已缺失，仅 DB 软删除: {path}")
 
     _reload_after_faq_change()
     return {"ok": True, "message": "已删除"}
@@ -212,13 +244,11 @@ async def save_faq(
     带 id = 更新已有 FAQ（按 faq_code 幂等 upsert）；不带 id = 新增并生成 FAQ-{部门}-{模块}-{NNN}
     dept_id/module_id 优先于名称使用（前端选择器携带唯一 ID），传 ID 未传名称时反查名称。
     """
-    repo = DBRepository()
+    repo = get_repo()
     if dept_id and not dept:
-        row = repo._execute_one("SELECT name FROM departments WHERE id = ?", (dept_id,))
-        dept = row["name"] if row else ""
+        dept = repo.get_department_name(dept_id)
     if module_id and not (sub_module or module):
-        row = repo._execute_one("SELECT name FROM modules WHERE id = ?", (module_id,))
-        sub_module = row["name"] if row else ""
+        sub_module = repo.get_module_name(module_id)
         module = sub_module or module
     if not title or not dept:
         return JSONResponse({"error": "title 和 dept 为必填参数"}, status_code=422)
@@ -236,9 +266,7 @@ async def save_faq(
 
     # 生成/复用 FAQ 编码
     if not id:
-        row = repo._execute_one(
-            "SELECT code FROM departments WHERE name = ? AND code IS NOT NULL LIMIT 1", (dept,))
-        dept_code = row["code"] if row else DEPT_CODES.get(dept, "XX")
+        dept_code = repo.get_dept_code(dept) or DEPT_CODES.get(dept, "XX")
         mod_code = sub_module[:3] if sub_module else "XXX"
         existing = list(faq_dir.glob("*.md"))
         id = f"FAQ-{dept_code}-{mod_code}-{len(existing) + 1:03d}"
@@ -428,7 +456,7 @@ tickets: []
         success += 1
 
     # 回导 faqs 表（幂等）+ 重建索引
-    repo = DBRepository()
+    repo = get_repo()
     try:
         repo.bulk_import_faqs()
     except Exception:
@@ -440,9 +468,9 @@ tickets: []
 @router.get("/faq/view")
 async def faq_view(id: str = Query(...), user: str = Depends(verify_token)):
     """FAQ 浏览次数 +1"""
-    repo = DBRepository()
+    repo = get_repo()
     try:
-        repo._execute_write("UPDATE faqs SET view_count = view_count + 1 WHERE faq_code = ?", (id,))
+        repo.increment_faq_views(id)
     except Exception:
         record_write_failure("faq_save")
     return {"ok": True}

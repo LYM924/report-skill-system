@@ -37,17 +37,14 @@ def _write_search_log(q: str, normalized_q: str, result_count: int, has_answer: 
                       search_time_ms: int, request: Request):
     """写 search_logs 表（失败只计数不阻断，Schema 契约由 /api/health 暴露）"""
     try:
-        from repository import DBRepository
-        repo = DBRepository()
+        from repository import get_repo
+        repo = get_repo()
         ua = (request.headers.get("user-agent", "") or "")[:500]
         ip_hash = hashlib.sha256((request.client.host if request.client else "").encode()).hexdigest()[:16]
-        repo._execute_write(
-            "INSERT INTO search_logs (query, normalized_q, result_count, has_answer, "
-            "search_time_ms, source, user_agent, ip_hash) "
-            "VALUES (:q, :nq, :cnt, :ha, :ms, 'web', :ua, :ip)",
-            {"q": q[:2000], "nq": normalized_q[:2000] if normalized_q else None,
-             "cnt": result_count, "ha": has_answer, "ms": search_time_ms,
-             "ua": ua, "ip": ip_hash},
+        repo.save_search_log(
+            q[:2000], normalized_q[:2000] if normalized_q else None,
+            result_count, has_answer, search_time_ms,
+            user_agent=ua, ip_hash=ip_hash,
         )
     except Exception:
         record_write_failure("search_log")
@@ -81,8 +78,8 @@ async def search(
     cached = eng.check_faq_cache(q)
     if cached:
         try:
-            from repository import DBRepository
-            DBRepository().increment_counter("faq_hits")
+            from repository import get_repo
+            get_repo().increment_counter("faq_hits")
         except Exception:
             pass
         return {
@@ -156,8 +153,8 @@ async def claude_stream(
     if not session:
         return {"error": "会话已过期，请重新搜索"}
     try:
-        from repository import DBRepository
-        DBRepository().increment_counter("ai_summaries")
+        from repository import get_repo
+        get_repo().increment_counter("ai_summaries")
     except Exception:
         pass
     # 按会话所属用户的 AI 配置取模型/密钥（用户配置优先，服务器环境回退）
@@ -180,13 +177,9 @@ async def suggest(q: str = Query(..., description="搜索提示词"), user: str 
     suggestions = []
     # 1. DB：keywords_v2 模糊匹配
     try:
-        from repository import DBRepository
-        repo = DBRepository()
-        rows = repo._execute(
-            "SELECT DISTINCT keyword FROM keywords_v2 WHERE keyword LIKE ? AND is_deleted = FALSE LIMIT 10",
-            (f"%{q}%",),
-        )
-        suggestions = [r["keyword"] for r in rows]
+        from repository import get_repo
+        repo = get_repo()
+        suggestions = repo.search_keywords_like(q, limit=10)
     except Exception:
         suggestions = []
     if main.search_engine is not None:
@@ -227,8 +220,8 @@ async def feedback(
     if type not in ("useful", "not_useful"):
         return {"error": "type 必须是 useful 或 not_useful"}
     try:
-        from repository import DBRepository
-        repo = DBRepository()
+        from repository import get_repo
+        repo = get_repo()
         repo.save_feedback(q, result_id, result_path, type)
     except Exception:
         record_write_failure("keyword_write")  # 复用写失败计数通道
@@ -255,8 +248,8 @@ async def _chat_impl(message: str, user: str):
     if not cfg:
         return {"error": "未配置 AI 服务（请在 系统管理→配置中心 保存你的 AI 配置）"}
     try:
-        from repository import DBRepository
-        DBRepository().increment_counter("ai_summaries")
+        from repository import get_repo
+        get_repo().increment_counter("ai_summaries")
     except Exception:
         pass
     system = "你是企业内部知识库 AI 助手，请用中文简洁专业地回答用户问题。"
@@ -284,8 +277,8 @@ async def _rag_impl(message: str, user: str):
     if not cfg:
         return {"error": "未配置 AI 服务（请在 系统管理→配置中心 保存你的 AI 配置）"}
     try:
-        from repository import DBRepository
-        DBRepository().increment_counter("ai_summaries")
+        from repository import get_repo
+        get_repo().increment_counter("ai_summaries")
     except Exception:
         pass
 

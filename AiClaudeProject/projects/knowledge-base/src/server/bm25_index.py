@@ -90,6 +90,51 @@ class BM25Index:
         total_len = sum(self.doc_lengths.values())
         self.avg_dl = total_len / self.N if self.N > 0 else 1
 
+    def remove_by_path_prefix(self, prefix: str):
+        """删除路径前缀匹配的所有文档索引条目（增量更新用）
+
+        删除后自动重算 N/avg_dl，IDF 在下次搜索时按新 N 重算。
+        """
+        to_remove = [i for i, (_, path, _, _) in enumerate(self.documents) if path.startswith(prefix)]
+        if not to_remove:
+            return
+        remove_ids = set(to_remove)
+        # 清理 inverted_index 中的引用
+        for term in list(self.inverted_index.keys()):
+            for doc_id in remove_ids:
+                self.inverted_index[term].pop(doc_id, None)
+            if not self.inverted_index[term]:
+                del self.inverted_index[term]
+        # 清理 doc_lengths
+        for doc_id in remove_ids:
+            self.doc_lengths.pop(doc_id, None)
+        # 重建 documents 列表（ID 重新映射）
+        old_docs = self.documents
+        self.documents = []
+        id_map = {}  # 旧 ID → 新 ID
+        new_id = 0
+        for old_id, (_, path, dept, domain) in enumerate(old_docs):
+            if old_id not in remove_ids:
+                id_map[old_id] = new_id
+                self.documents.append((new_id, path, dept, domain))
+                new_id += 1
+        # 重映射 inverted_index 和 doc_lengths
+        new_inverted = defaultdict(dict)
+        for term, postings in self.inverted_index.items():
+            for old_id, freq in postings.items():
+                if old_id in id_map:
+                    new_inverted[term][id_map[old_id]] = freq
+        self.inverted_index = new_inverted
+        new_lengths = {}
+        for old_id, length in self.doc_lengths.items():
+            if old_id in id_map:
+                new_lengths[id_map[old_id]] = length
+        self.doc_lengths = new_lengths
+        # 重算统计量
+        self.N = len(self.documents)
+        total_len = sum(self.doc_lengths.values())
+        self.avg_dl = total_len / self.N if self.N > 0 else 1
+
     def _idf(self, term):
         """计算 IDF（逆文档频率），使用 BM25 标准公式"""
         df = len(self.inverted_index.get(term, {}))

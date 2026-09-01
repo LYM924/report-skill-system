@@ -9,38 +9,51 @@ from collections import defaultdict
 from datetime import datetime, timedelta, date
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
+from fastapi.responses import JSONResponse, Response
 
 import main
 from auth import verify_token
 from config import settings
-from repository import DBRepository
+from repository import get_repo
 
 router = APIRouter(tags=["仪表盘"])
 
 
+def _cached_response(data: dict, max_age: int = 10):
+    """返回带 Cache-Control 头的 JSON 响应"""
+    resp = JSONResponse(data)
+    resp.headers["Cache-Control"] = f"private, max-age={max_age}"
+    return resp
+
+
 @router.get("/dashboard")
 async def dashboard(user: str = Depends(verify_token)):
-    """知识总览仪表盘"""
-    if main.search_engine is None:
-        return {"error": "搜索引擎未就绪"}
+    """知识总览仪表盘（DB 直查 + Redis 短缓存，与列表数据一致）"""
+    from service.cache import cache_get, cache_set, KEY_DASHBOARD
+    # 先查缓存
+    cached = cache_get(KEY_DASHBOARD)
+    if cached:
+        return cached
 
-    faq_count = len(main.search_engine.faq_docs)
-    kb_count = len([d for d in main.search_engine.kb_docs
-                    if not d.get('path', '').startswith('data/faq/')])
-    report_count = len(main.search_engine.report_docs) if hasattr(main.search_engine, 'report_docs') else 0
+    try:
+        repo = get_repo()
+        counts = repo.get_active_counts()
+        faq_count = counts["faqs"]
+        kb_count = counts["documents"]
+        report_count = counts["reports"]
+    except Exception:
+        faq_count = kb_count = report_count = 0
 
     # 近 7 天搜索次数（search_logs 表）
     week_questions = 0
     try:
-        repo = DBRepository()
+        repo = get_repo()
         since = (date.today() - timedelta(days=7)).isoformat()
-        row = repo._execute_one(
-            "SELECT COUNT(*) AS c FROM search_logs WHERE created_at >= :since", {"since": since})
-        week_questions = row["c"] if row else 0
+        week_questions = repo.get_search_log_count_since(since)
     except Exception:
         pass
 
-    return {
+    result = {
         "totalDocs": kb_count + faq_count + report_count,
         "faqCount": faq_count,
         "totalKbDocs": kb_count,
@@ -50,23 +63,27 @@ async def dashboard(user: str = Depends(verify_token)):
         "weekNewGrowth": 0,
         "aiMatchConfidence": 92,
     }
+    # 写入缓存（TTL 30s）
+    cache_set(KEY_DASHBOARD, result, ttl=30)
+    return _cached_response(result, max_age=30)
 
 
 @router.get("/stats")
 async def stats(user: str = Depends(verify_token)):
-    """系统统计"""
-    if main.search_engine is None:
-        return {"error": "搜索引擎未就绪"}
+    """系统统计（DB 直查 + Redis 短缓存，与列表数据一致）"""
+    from service.cache import cache_get, cache_set, KEY_STATS
+    cached = cache_get(KEY_STATS)
+    if cached:
+        return cached
 
     today_questions = 0
     counters = {}
+    counts = {}
     try:
-        repo = DBRepository()
-        row = repo._execute_one(
-            "SELECT COUNT(*) AS c FROM search_logs WHERE created_at >= :since",
-            {"since": date.today().isoformat()})
-        today_questions = row["c"] if row else 0
+        repo = get_repo()
+        today_questions = repo.get_search_log_count_since(date.today().isoformat())
         counters = repo.get_all_counters()
+        counts = repo.get_active_counts()
     except Exception:
         pass
 
@@ -78,17 +95,18 @@ async def stats(user: str = Depends(verify_token)):
     not_useful = counter("feedback_not_useful")
     satisfaction = round(useful / (useful + not_useful) * 100) if (useful + not_useful) > 0 else None
 
-    return {
-        "totalDocs": len([d for d in main.search_engine.kb_docs
-                          if not d.get('path', '').startswith('data/faq/')]),
-        "faqCount": len(main.search_engine.faq_docs),
-        "modules": len(main.search_engine.module_map),
-        "keywords": len(main.search_engine.keyword_map),
+    result = {
+        "totalDocs": counts.get("documents", 0),
+        "faqCount": counts.get("faqs", 0),
+        "modules": 0,  # 模块数从 modules 表统计，不再从内存
+        "keywords": counts.get("keywords", 0),
         "today_questions": today_questions,
         "faq_hits": counter("faq_hits"),
         "ai_summaries": counter("ai_summaries"),
         "satisfaction": satisfaction,  # 有用反馈占比（%），无反馈为 null
     }
+    cache_set(KEY_STATS, result, ttl=30)
+    return _cached_response(result, max_age=30)
 
 
 @router.get("/trends")
@@ -96,15 +114,9 @@ async def trends(days: int = 7, user: str = Depends(verify_token)):
     """搜索趋势（search_logs 表按日聚合）"""
     daily = {}
     try:
-        repo = DBRepository()
-        since = (date.today() - timedelta(days=days - 1)).isoformat()
-        rows = repo._execute(
-            "SELECT CAST(created_at AS DATE) AS d, COUNT(*) AS c FROM search_logs "
-            "WHERE created_at >= :since GROUP BY CAST(created_at AS DATE)",
-            {"since": since})
-        for r in rows:
-            key = str(r["d"])[:10]
-            daily[key] = r["c"]
+        repo = get_repo()
+        for item in repo.get_search_trends(days):
+            daily[item["date"]] = item["count"]
     except Exception:
         pass
     today = date.today()
@@ -119,50 +131,42 @@ async def trends(days: int = 7, user: str = Depends(verify_token)):
 
 @router.get("/recent")
 async def recent(user: str = Depends(verify_token)):
-    """最近更新（排除 [FAQ] 条目，与 documents/dashboard 口径一致）"""
-    if main.search_engine is None:
-        return {"recent": []}
+    """最近更新（DB 直查 + Redis 短缓存，排除 FAQ，按 updated_at 倒序）"""
+    from service.cache import cache_get, cache_set, KEY_RECENT
+    cached = cache_get(KEY_RECENT)
+    if cached:
+        return cached
 
     docs = []
-    for doc in main.search_engine.kb_docs:
-        p = doc.get("path", "")
-        if p.startswith("data/faq/"):
-            continue
-        full = settings.PROJECT_DIR / p
-        try:
-            mtime = datetime.fromtimestamp(full.stat().st_mtime).strftime("%Y-%m-%d %H:%M") if full.exists() \
-                else datetime.now().strftime("%Y-%m-%d %H:%M")
-        except Exception:
-            mtime = datetime.now().strftime("%Y-%m-%d %H:%M")
-        docs.append({
-            "title": doc.get("title", ""),
-            "path": p,
-            "dept": doc.get("dept", ""),
-            "updated": mtime,
-        })
-    docs.sort(key=lambda x: x["updated"], reverse=True)
-    return {"recent": docs[:6]}
+    try:
+        repo = get_repo()
+        rows = repo.get_recent_documents(limit=6)
+        for row in rows:
+            updated = ""
+            if row.get("updated_at"):
+                try:
+                    updated = str(row["updated_at"])[:16].replace("T", " ")
+                except Exception:
+                    updated = str(row["updated_at"])
+            docs.append({
+                "title": row.get("title", ""),
+                "path": row.get("path", ""),
+                "dept": row.get("dept", ""),
+                "updated": updated,
+            })
+    except Exception:
+        pass
+    result = {"recent": docs}
+    cache_set(KEY_RECENT, result, ttl=10)
+    return _cached_response(result, max_age=10)
 
 
 @router.get("/menu")
 async def menu(user: str = Depends(verify_token)):
     """左侧菜单树（统一从数据库 modules 表读取）"""
-    repo = DBRepository()
+    repo = get_repo()
 
-    rows = repo._execute("""
-        SELECT m.id as module_id, m.name as module_name, m.description, m.dev_owner, m.module_owner,
-               m.business_domain,
-               p.name as product_name,
-               pl.name as product_line_name,
-               d.name as dept_name, d.id as dept_id, d.parent_id, d.level
-        FROM modules m
-        LEFT JOIN products p ON m.product_id = p.id
-        LEFT JOIN product_lines pl ON p.product_line_id = pl.id
-        LEFT JOIN departments d ON m.department_id = d.id
-        WHERE m.name IS NOT NULL AND m.is_deleted = FALSE
-    """)
-
-    all_depts = repo._execute("SELECT id, name, parent_id, level FROM departments")
+    rows, all_depts = repo.get_menu_modules()
     dept_map = {d["id"]: d for d in all_depts}
 
     # 产品模块树: 产品线 → 产品 → 模块
@@ -217,15 +221,19 @@ async def menu(user: str = Depends(verify_token)):
             return {k: convert(v) for k, v in d.items()}
         return d
 
-    # kb_dept: 从搜索引擎 kb_docs 路径解析
+    # kb_dept: 从 DB documents 表路径解析（替代遍历内存 kb_docs）
     kb_dept = defaultdict(lambda: defaultdict(list))
-    if main.search_engine:
-        for doc in main.search_engine.kb_docs:
+    try:
+        repo = get_repo()
+        doc_rows = repo.get_all_documents_raw()
+        for doc in doc_rows:
             parts = doc.get("path", "").split("/")
             if "knowledge" in parts:
                 idx = parts.index("knowledge")
                 if len(parts) > idx + 2:
                     kb_dept[parts[idx + 1]][parts[idx + 2]].append(doc.get("title", ""))
+    except Exception:
+        pass
 
     return {
         "productModules": convert(product_tree),
@@ -241,10 +249,8 @@ async def menu(user: str = Depends(verify_token)):
 @router.get("/departments/tree")
 async def departments_tree(user: str = Depends(verify_token)):
     """部门树（嵌套结构，含 doc_count）"""
-    repo = DBRepository()
-    rows = repo._execute(
-        "SELECT id, name, parent_id, level, code, dir_name FROM departments ORDER BY level, name"
-    )
+    repo = get_repo()
+    rows = repo.get_department_tree()
     try:
         doc_counts = repo.get_all_department_doc_counts()  # {department_id: count}
     except Exception:
@@ -274,10 +280,8 @@ async def departments_tree(user: str = Depends(verify_token)):
 @router.get("/departments/options")
 async def departments_options(user: str = Depends(verify_token)):
     """部门选项（含层级与父级名称）"""
-    repo = DBRepository()
-    rows = repo._execute(
-        "SELECT id, name, parent_id, level, code, dir_name FROM departments ORDER BY level, name"
-    )
+    repo = get_repo()
+    rows = repo.get_department_tree()
     name_map = {r["id"]: r["name"] for r in rows}
     options = []
     for r in rows:
@@ -300,15 +304,7 @@ async def rebuild_index(background_tasks: BackgroundTasks, user: str = Depends(v
     def _rebuild():
         try:
             if main.search_engine is not None:
-                import shutil
-                cache_dir = settings.RUNTIME_DIR / "cache"
-                for f in cache_dir.glob("*"):
-                    if f.is_file():
-                        f.unlink()
-                # 先完整构建新引擎，再原子替换，避免加载期间请求打到半成品引擎
-                new_engine = type(main.search_engine)()
-                new_engine.load_all()
-                main.search_engine = new_engine
+                main.search_engine = main.search_engine.rebuild_all()
         except Exception:
             pass
 
@@ -325,16 +321,9 @@ async def reports(
 ):
     """报表列表（reports 表，支持分类与分页）"""
     import json as _json
-    repo = DBRepository()
-    query = ("SELECT id, title, week, year, category, dept_summary, path, created_at "
-             "FROM reports WHERE is_deleted = FALSE")
-    params = []
-    if category:
-        query += " AND category = ?"
-        params.append(category)
-    query += " ORDER BY year DESC NULLS LAST, week DESC"
+    repo = get_repo()
     try:
-        rows = repo._execute(query, params)
+        rows = repo.get_reports_page(category)
         all_reports = []
         for row in rows:
             ds = row["dept_summary"]
@@ -375,15 +364,8 @@ async def logs(lines: int = Query(100, le=1000), user: str = Depends(verify_toke
 @router.get("/hotwords")
 async def hotwords(days: int = 7, limit: int = 20, user: str = Depends(verify_token)):
     """搜索热词（search_logs 表最近 N 天 GROUP BY）"""
-    repo = DBRepository()
-    since = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    repo = get_repo()
     try:
-        rows = repo._execute(
-            "SELECT query, COUNT(*) as cnt FROM search_logs "
-            "WHERE created_at >= :since AND query IS NOT NULL AND query != '' "
-            "GROUP BY query ORDER BY cnt DESC LIMIT :limit",
-            {"since": since, "limit": limit}
-        )
-        return {"hotwords": [{"word": r["query"], "count": r["cnt"]} for r in rows]}
+        return {"hotwords": repo.get_hot_keywords(days, limit)}
     except Exception:
         return {"hotwords": []}

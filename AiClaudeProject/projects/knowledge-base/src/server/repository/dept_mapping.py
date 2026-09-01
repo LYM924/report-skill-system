@@ -430,8 +430,8 @@ def get_dept_path(dept_name: str) -> str:
     """中文部门名 → 英文路径名（数据库优先 → 代码映射 → 拼音兜底）"""
     # 1. 数据库优先：dir_name 可通过 Web 管理界面修改，无需改代码
     try:
-        from .db_repo import DBRepository
-        repo = DBRepository()
+        from .db_repo import get_repo
+        repo = get_repo()
         row = repo._execute_one(
             "SELECT dir_name FROM departments WHERE name = ? AND dir_name IS NOT NULL AND dir_name != ''",
             (dept_name,)
@@ -462,8 +462,8 @@ def get_submodule_path(sub_name: str) -> str:
     """中文子模块名 → 英文路径名（优先数据库，其次映射表，最后拼音兜底）"""
     # 1. 数据库查询（modules.dir_name）
     try:
-        from .db_repo import DBRepository
-        repo = DBRepository()
+        from .db_repo import get_repo
+        repo = get_repo()
         row = repo._execute_one("SELECT dir_name FROM modules WHERE name = ? AND dir_name IS NOT NULL", (sub_name,))
         if row and row.get("dir_name"):
             return row["dir_name"]

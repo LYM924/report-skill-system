@@ -25,29 +25,38 @@ DATA_DIR = PROJECT_DIR / "data"
 RUNTIME_DIR = PROJECT_DIR / "runtime"
 DB_PATH = RUNTIME_DIR / "knowledge.db"
 
-def _load_dotenv():
-    """加载 .env 文件中的环境变量"""
+def _get_db_url():
+    """获取数据库 URL
+
+    优先使用 config.py 已加载的环境变量（Web 服务启动时 config.py 最先 import）。
+    兜底：若 config.py 未被导入（如 CLI 直接运行 search_engine.py），自动加载 .env。
+    """
+    import os
+    # 兜底：config.py 未加载时，确保 .env 中的 DATABASE_URL_SYNC 可用
+    if not os.getenv("DATABASE_URL_SYNC") and not os.getenv("_KB_ENV_LOADED"):
+        _ensure_env_loaded()
+    pg_url = os.getenv("DATABASE_URL_SYNC", "")
+    if pg_url and "postgresql" in pg_url:
+        return pg_url
+    return f"sqlite:///{DB_PATH}"
+
+
+def _ensure_env_loaded():
+    """兜底加载 .env（当 config.py 未被先导入时使用，如 CLI 直接运行 search_engine.py）"""
     import os
     env_file = PROJECT_DIR / ".env"
     if not env_file.exists():
         return
-    with open(env_file, "r") as f:
+    with open(env_file, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line or line.startswith("#") or "=" not in line:
                 continue
             key, _, val = line.partition("=")
             key, val = key.strip(), val.strip().strip('"').strip("'")
-            if key and key not in os.environ:
+            if key and (key not in os.environ or val):
                 os.environ[key] = val
-
-def _get_db_url():
-    import os
-    _load_dotenv()
-    pg_url = os.getenv("DATABASE_URL_SYNC", "")
-    if pg_url and "postgresql" in pg_url:
-        return pg_url
-    return f"sqlite:///{DB_PATH}"
+    os.environ["_KB_ENV_LOADED"] = "1"  # 标记已加载，避免重复
 
 # 状态映射: 旧 TEXT → 新 INT
 STATUS_MAP = {"active": 1, "outdated": 2, "deprecated": 3, "draft": 0}
@@ -59,7 +68,14 @@ class DBRepository(KnowledgeRepository):
 
     def __init__(self, db_url=None):
         self.db_url = db_url or _get_db_url()
-        self.engine = create_engine(self.db_url, echo=False, pool_pre_ping=True)
+        self.engine = create_engine(
+            self.db_url, echo=False,
+            pool_size=5,           # 常驻连接数（1 worker 足够）
+            max_overflow=3,        # 峰值最多 8 个连接
+            pool_recycle=1800,     # 30 分钟回收（防 PG 8h 空闲断连）
+            pool_pre_ping=True,    # 连接取用前检测存活
+            pool_timeout=10,       # 等连接最多 10s
+        )
         self._init_schema()
 
     def _init_schema(self):
@@ -170,8 +186,10 @@ class DBRepository(KnowledgeRepository):
     # ══════ Modules ══════
 
     def get_all_modules(self) -> dict[str, ModuleInfo]:
-        """从数据库读取所有模块"""
-        modules = {}
+        """从数据库读取所有模块（批量预加载菜单/关键词，消除 N+1）"""
+        from collections import defaultdict as _dd
+
+        # 1. 主查询
         rows = self._execute("""
             SELECT m.*, d.name as dept_name, p.name as product_name,
                    pl.name as product_line_name
@@ -181,35 +199,37 @@ class DBRepository(KnowledgeRepository):
             LEFT JOIN product_lines pl ON p.product_line_id = pl.id
         """)
 
+        # 2. 批量预加载菜单（1 条 SQL）
+        menu_rows = self._execute("SELECT module_id, level1, level2, level3 FROM module_menus")
+        menus_by_mod = _dd(list)
+        for mr in menu_rows:
+            for level in [mr["level1"], mr["level2"], mr["level3"]]:
+                if level and level != "-":
+                    menus_by_mod[mr["module_id"]].append(level)
+
+        # 3. 批量预加载关键词（1 条 SQL）
+        kw_rows = self._execute("""
+            SELECT DISTINCT km.module_id, kw.keyword
+            FROM keyword_mappings km
+            JOIN keywords_v2 kw ON kw.id = km.keyword_id
+            WHERE kw.is_deleted = FALSE AND km.is_deleted = FALSE
+        """)
+        kws_by_mod = _dd(list)
+        for kr in kw_rows:
+            kws_by_mod[kr["module_id"]].append(kr["keyword"])
+
+        # 4. 组装
+        modules = {}
         for row in rows:
-            # 获取菜单
-            menus = []
-            menu_rows = self._execute(
-                "SELECT level1, level2, level3 FROM module_menus WHERE module_id = ?",
-                (row["id"],)
-            )
-            for mr in menu_rows:
-                for level in [mr["level1"], mr["level2"], mr["level3"]]:
-                    if level and level != "-":
-                        menus.append(level)
-
-            # 获取关键词（从新表）
-            kw_rows = self._execute(
-                """SELECT DISTINCT kw.keyword FROM keywords_v2 kw
-                   JOIN keyword_mappings km ON kw.id = km.keyword_id
-                   WHERE km.module_id = ? AND kw.is_deleted = FALSE AND km.is_deleted = FALSE""",
-                (row["id"],)
-            )
-            keywords = [kw["keyword"] for kw in kw_rows]
-
+            mid = row["id"]
             modules[row["name"]] = asdict(ModuleInfo(
                 name=row["name"],
                 path=row["path"] or "",
                 dept=row["dept_name"] or "",
                 domain=row["business_domain"] or "",
                 product=row["product_name"] or "",
-                keywords=keywords,
-                menus=menus,
+                keywords=kws_by_mod.get(mid, []),
+                menus=menus_by_mod.get(mid, []),
             ))
 
         return modules
@@ -332,6 +352,7 @@ class DBRepository(KnowledgeRepository):
 
         - keyword 改名撞 UNIQUE 时返回 {"error": "关键词已存在"}
         - module_id/dept_id/dept 传 None 表示清空（0 也会转为 NULL）
+        - 两步 UPDATE 在同一事务内执行（keywords_v2 + keyword_mappings 原子性）
         """
         now = datetime.now().isoformat()
         # 先获取当前记录
@@ -342,22 +363,36 @@ class DBRepository(KnowledgeRepository):
         if not current:
             return {"error": "映射不存在或已删除"}
         keyword_id = current["keyword_id"]
-        # 如果 keyword 文本变了，更新 keywords_v2 表
-        if keyword:
+
+        # 同一连接 + 同一事务执行两步 UPDATE（防止部分成功导致两表不一致）
+        with self.engine.connect() as conn:
             try:
-                self._execute_write(
-                    "UPDATE keywords_v2 SET keyword = ?, updated_at = ? WHERE id = ?",
-                    (keyword, now, keyword_id)
+                # 第一步：如果 keyword 文本变了，更新 keywords_v2 表
+                if keyword:
+                    sql1, params1 = self._convert_params(
+                        "UPDATE keywords_v2 SET keyword = ?, updated_at = ? WHERE id = ?",
+                        (keyword, now, keyword_id)
+                    )
+                    sql1 = self._adapt_sql(sql1)
+                    conn.execute(text(sql1), params1)
+
+                # 第二步：更新映射记录
+                sql2, params2 = self._convert_params(
+                    "UPDATE keyword_mappings SET module_id = ?, department_id = ?, department = ?, updated_at = ? "
+                    "WHERE id = ?",
+                    (module_id or None, dept_id or None, dept or "", now, mapping_id)
                 )
-            except Exception:
+                sql2 = self._adapt_sql(sql2)
+                conn.execute(text(sql2), params2)
+
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
                 # 唯一约束冲突（新词已存在）
-                return {"error": "关键词已存在"}
-        # 更新映射记录（全量覆盖：None/0 → NULL，支持清空外键）
-        self._execute_write(
-            "UPDATE keyword_mappings SET module_id = ?, department_id = ?, department = ?, updated_at = ? "
-            "WHERE id = ?",
-            (module_id or None, dept_id or None, dept or "", now, mapping_id)
-        )
+                err_msg = str(e).lower()
+                if "unique" in err_msg or "duplicate" in err_msg or "冲突" in err_msg:
+                    return {"error": "关键词已存在"}
+                raise
         return {"ok": True}
 
     def delete_mapping(self, mapping_id: int) -> bool:
@@ -731,17 +766,24 @@ tickets: {json.dumps(faq.tickets, ensure_ascii=False) if faq.tickets else '[]'}
             return rel_path
         return faq.path
 
-    def delete_faq(self, path: str) -> bool:
-        """逻辑删除 FAQ：is_deleted = TRUE"""
-        try:
-            self._execute_write("UPDATE faqs SET is_deleted = TRUE, update_time = :update_time WHERE file_path = :path",
-                           {"update_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S'), "path": path})
-            return True
-        except Exception:
-            # 回退：尝试按 faq_code 匹配
-            faq_code = path.split("/")[-1].replace(".md", "")
-            self._execute_write("UPDATE faqs SET is_deleted = TRUE WHERE faq_code = :code", {"code": faq_code})
-            return True
+    def delete_faq(self, path: str) -> dict:
+        """逻辑删除 FAQ：is_deleted = TRUE
+
+        优先按 file_path 匹配，回退按 faq_code 匹配。
+        返回 {"ok": True, "matched": int}，matched=0 表示未找到记录。
+        """
+        faq_code = path.split("/")[-1].replace(".md", "")
+        for key, val in [("file_path", path), ("faq_code", faq_code)]:
+            sql, params = self._convert_params(
+                f"UPDATE faqs SET is_deleted = TRUE, update_time = :update_time WHERE {key} = :val AND is_deleted = FALSE",
+                {"update_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S'), "val": val})
+            sql = self._adapt_sql(sql)
+            with self.engine.connect() as conn:
+                result = conn.execute(text(sql), params)
+                conn.commit()
+                if result.rowcount > 0:
+                    return {"ok": True, "matched": result.rowcount}
+        return {"ok": False, "matched": 0, "error": "FAQ 不存在"}
 
     def bulk_import_faqs(self, faq_dir=None) -> int:
         """批量导入 FAQ：从目录扫描 .md 文件导入数据库（幂等）"""
@@ -823,6 +865,326 @@ tickets: {json.dumps(faq.tickets, ensure_ascii=False) if faq.tickets else '[]'}
     def get_all_counters(self) -> dict:
         rows = self._execute("SELECT key, value FROM search_counter")
         return {row["key"]: row["value"] for row in rows}
+
+    # ══════ 语义查询方法（消灭 SearchEngine/路由层硬编码 SQL）══════
+
+    def get_faq_tags(self) -> list[dict]:
+        """获取所有 FAQ 的 tags 字段（用于 jieba 词典加载）"""
+        return self._execute("SELECT DISTINCT tags FROM faqs WHERE is_deleted = FALSE")
+
+    def get_all_documents_raw(self) -> list[dict]:
+        """获取全量文档原始行（SearchEngine 索引构建用）"""
+        return self._execute(
+            "SELECT path, title, content, dept, module, product, date, "
+            "keywords, dept as dept3 FROM documents WHERE is_deleted = FALSE"
+        )
+
+    def get_all_reports_raw(self) -> list[dict]:
+        """获取全量报表原始行（SearchEngine 索引构建用）"""
+        return self._execute("SELECT path, title, content FROM reports WHERE is_deleted = FALSE")
+
+    def get_faq_latest_update(self) -> str:
+        """获取 FAQ 表最新更新时间（缓存版本检测用）"""
+        row = self._execute_one("SELECT MAX(update_time) as latest FROM faqs WHERE is_deleted = FALSE")
+        return row["latest"] if row and row["latest"] else ""
+
+    def get_cache_version(self) -> int:
+        """获取缓存版本号（缓存一致性检测用）"""
+        return self.get_counter("cache_version")
+
+    def check_table_columns(self, table_name: str) -> list[str]:
+        """查询表的列名列表（information_schema.columns），返回列名列表"""
+        rows = self._execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = ?",
+            (table_name,)
+        )
+        return [r["column_name"] for r in rows]
+
+    def check_table_indexes(self, table_name: str, indexname: str = None) -> list[str]:
+        """查询表的索引名列表（pg_indexes），可选按索引名精确过滤"""
+        if indexname:
+            rows = self._execute(
+                "SELECT indexname FROM pg_indexes WHERE tablename = ? AND indexname = ?",
+                (table_name, indexname)
+            )
+        else:
+            rows = self._execute(
+                "SELECT indexname FROM pg_indexes WHERE tablename = ?",
+                (table_name,)
+            )
+        return [r["indexname"] for r in rows]
+
+    def get_table_count(self, table_name: str):
+        """查询表的行数，表不存在时返回 None"""
+        row = self._execute_one(f"SELECT COUNT(*) AS c FROM {table_name}")
+        return row["c"] if row else None
+
+    def get_active_counts(self):
+        """获取各表有效记录数（is_deleted=FALSE），返回 dict
+
+        用于 Dashboard 统计，替代遍历内存计数。
+        """
+        doc_count = self._execute_one(
+            "SELECT COUNT(*) AS c FROM documents WHERE is_deleted = FALSE"
+        )
+        faq_count = self._execute_one(
+            "SELECT COUNT(*) AS c FROM faqs WHERE is_deleted = FALSE"
+        )
+        report_count = self._execute_one(
+            "SELECT COUNT(*) AS c FROM reports WHERE is_deleted = FALSE"
+        )
+        keyword_count = self._execute_one(
+            "SELECT COUNT(DISTINCT keyword) AS c FROM keywords_v2 WHERE is_deleted = FALSE"
+        )
+        return {
+            "documents": doc_count["c"] if doc_count else 0,
+            "faqs": faq_count["c"] if faq_count else 0,
+            "reports": report_count["c"] if report_count else 0,
+            "keywords": keyword_count["c"] if keyword_count else 0,
+        }
+
+    def get_recent_documents(self, limit: int = 6):
+        """最近更新的文档（排除 FAQ，按 updated_at 倒序）
+
+        用于 Dashboard /recent，替代遍历内存 kb_docs。
+        """
+        return self._execute(
+            "SELECT path, title, dept, updated_at FROM documents "
+            "WHERE is_deleted = FALSE AND path NOT LIKE 'data/faq/%%' "
+            "ORDER BY updated_at DESC NULLS LAST LIMIT :limit",
+            {"limit": limit}
+        )
+
+    def save_search_log(self, query: str, normalized_q: str, results_count: int,
+                        has_answer: bool, search_time_ms: int,
+                        user_agent: str = "", ip_hash: str = "") -> None:
+        """写入搜索日志到 search_logs 表"""
+        self._execute_write(
+            "INSERT INTO search_logs (query, normalized_q, result_count, has_answer, "
+            "search_time_ms, source, user_agent, ip_hash) "
+            "VALUES (:q, :nq, :cnt, :ha, :ms, 'web', :ua, :ip)",
+            {"q": query[:2000], "nq": normalized_q[:2000] if normalized_q else None,
+             "cnt": results_count, "ha": has_answer, "ms": search_time_ms,
+             "ua": user_agent, "ip": ip_hash},
+        )
+
+    def search_keywords_like(self, prefix: str, limit: int = 10) -> list[str]:
+        """模糊搜索关键词（keywords_v2 LIKE 匹配，返回去重关键词列表）"""
+        rows = self._execute(
+            "SELECT DISTINCT keyword FROM keywords_v2 WHERE keyword LIKE ? AND is_deleted = FALSE LIMIT ?",
+            (f"%{prefix}%", limit)
+        )
+        return [r["keyword"] for r in rows]
+
+    def get_department_name(self, dept_id: int) -> str:
+        """按部门 ID 查询部门名称，无匹配返回空字符串"""
+        row = self._execute_one("SELECT name FROM departments WHERE id = ?", (dept_id,))
+        return row["name"] if row else ""
+
+    def get_module_name(self, module_id: int) -> str:
+        """按模块 ID 查询模块名称，无匹配返回空字符串"""
+        row = self._execute_one("SELECT name FROM modules WHERE id = ?", (module_id,))
+        return row["name"] if row else ""
+
+    def get_dept_code(self, dept_name: str) -> str:
+        """按部门名称查询部门编码（code），无匹配返回 None"""
+        row = self._execute_one(
+            "SELECT code FROM departments WHERE name = ? AND code IS NOT NULL LIMIT 1",
+            (dept_name,)
+        )
+        return row["code"] if row else None
+
+    def increment_faq_views(self, faq_code: str) -> None:
+        """FAQ 浏览计数 +1"""
+        self._execute_write(
+            "UPDATE faqs SET view_count = view_count + 1 WHERE faq_code = ?",
+            (faq_code,)
+        )
+
+    def get_module_product_map(self) -> dict[str, dict]:
+        """获取模块→产品信息映射（模块名→产品/产品线/部门/业务域）"""
+        rows = self._execute("""
+            SELECT m.name as module_name,
+                   p.name as product_name, pl.name as product_line_name,
+                   d.name as dept_name, m.business_domain
+            FROM modules m
+            LEFT JOIN products p ON m.product_id = p.id
+            LEFT JOIN product_lines pl ON p.product_line_id = pl.id
+            LEFT JOIN departments d ON m.department_id = d.id
+        """)
+        result = {}
+        for r in rows:
+            if r["module_name"]:
+                result[r["module_name"]] = {
+                    "product": r["product_name"] or "",
+                    "product_line": r["product_line_name"] or "",
+                    "dept": r["dept_name"] or "",
+                    "domain": r["business_domain"] or "",
+                }
+        return result
+
+    def save_document(self, doc: dict) -> None:
+        """保存文档（INSERT ON CONFLICT UPDATE）
+
+        doc 需包含键: path, filename, title, content, dept, dept_id, module,
+        module_id, product, product_line, date, keywords
+        """
+        self._execute_write(
+            "INSERT INTO documents "
+            "(path, filename, title, content, dept, dept_id, module, module_id, product, product_line, date, keywords, imported_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, now(), now()) "
+            "ON CONFLICT (path) DO UPDATE SET "
+            "filename = EXCLUDED.filename, title = EXCLUDED.title, content = EXCLUDED.content, "
+            "dept = EXCLUDED.dept, dept_id = EXCLUDED.dept_id, module = EXCLUDED.module, "
+            "module_id = EXCLUDED.module_id, product = EXCLUDED.product, product_line = EXCLUDED.product_line, "
+            "date = EXCLUDED.date, keywords = EXCLUDED.keywords, updated_at = now()",
+            (doc["path"], doc["filename"], doc["title"], doc["content"],
+             doc["dept"], doc.get("dept_id"), doc["module"], doc.get("module_id"),
+             doc["product"], doc["product_line"], doc["date"], doc["keywords"])
+        )
+
+    def document_exists(self, path: str) -> bool:
+        """检查文档路径是否已存在"""
+        row = self._execute_one("SELECT id FROM documents WHERE path = ?", (path,))
+        return row is not None
+
+    def get_document_by_path(self, path: str):
+        """按 path 查文档行（文件缺失时回退用，返回 dict 或 None）
+
+        只查 is_deleted=FALSE 的有效记录，返回 content/title/dept/module 等字段。
+        """
+        row = self._execute_one(
+            "SELECT path, title, content, dept, module, product, product_line, keywords "
+            "FROM documents WHERE path = :path AND is_deleted = FALSE",
+            {"path": path}
+        )
+        return row
+
+    def get_documents_page(self, dept_id: int = 0, module: str = ""):
+        """文档列表（DB 直查，替代遍历内存 kb_docs）
+
+        返回 dict 列表，每个含 path/title/dept/module/product/product_line/date/keywords。
+        不含 content（列表不需要正文，节省传输和内存）。
+        dept_id 过滤走 document_departments 关联表（含子部门递归）。
+        """
+        if dept_id:
+            paths = self.get_documents_by_department(dept_id)
+            if not paths:
+                return []
+            placeholders = ", ".join(f":p{i}" for i in range(len(paths)))
+            params = {f"p{i}": p for i, p in enumerate(paths)}
+            rows = self._execute(
+                "SELECT path, title, dept, module, product, product_line, date, keywords "
+                f"FROM documents WHERE path IN ({placeholders}) AND is_deleted = FALSE "
+                "ORDER BY updated_at DESC NULLS LAST",
+                params
+            )
+        else:
+            rows = self._execute(
+                "SELECT path, title, dept, module, product, product_line, date, keywords "
+                "FROM documents WHERE is_deleted = FALSE "
+                "ORDER BY updated_at DESC NULLS LAST"
+            )
+        return rows
+
+    def get_faqs_page(self):
+        """FAQ 列表（DB 直查，替代遍历内存 faq_docs）
+
+        返回 dict 列表，每个含 faq_code/faq_title/dept/sub_module/module/tags/file_path。
+        """
+        return self._execute(
+            "SELECT faq_code, faq_title, dept, sub_module, module, tags, file_path "
+            "FROM faqs WHERE is_deleted = FALSE ORDER BY update_time DESC NULLS LAST"
+        )
+
+    def update_document_path(self, old_path: str, new_path: str) -> bool:
+        """文档改名后同步更新 DB path（ON CONFLICT key）
+
+        返回 True 表示更新成功，False 表示旧路径无记录。
+        """
+        row = self._execute_one(
+            "SELECT id FROM documents WHERE path = :path AND is_deleted = FALSE",
+            {"path": old_path}
+        )
+        if not row:
+            return False
+        self._execute_write(
+            "UPDATE documents SET path = :new_path, updated_at = now() WHERE path = :old_path",
+            (new_path, old_path)
+        )
+        return True
+
+    def get_search_log_count_since(self, since: str = None) -> int:
+        """获取指定日期以来的搜索日志数量（since=None 时统计全量）"""
+        if since:
+            row = self._execute_one(
+                "SELECT COUNT(*) AS c FROM search_logs WHERE created_at >= :since",
+                {"since": since}
+            )
+        else:
+            row = self._execute_one("SELECT COUNT(*) AS c FROM search_logs")
+        return row["c"] if row else 0
+
+    def get_search_trends(self, days: int = 30) -> list[dict]:
+        """获取搜索趋势（按日聚合，最近 N 天）"""
+        from datetime import date, timedelta
+        since = (date.today() - timedelta(days=days - 1)).isoformat()
+        rows = self._execute(
+            "SELECT CAST(created_at AS DATE) AS d, COUNT(*) AS c FROM search_logs "
+            "WHERE created_at >= :since GROUP BY CAST(created_at AS DATE)",
+            {"since": since}
+        )
+        return [{"date": str(r["d"])[:10], "count": r["c"]} for r in rows]
+
+    def get_menu_modules(self) -> tuple[list[dict], list[dict]]:
+        """获取菜单所需数据：模块行（含产品/产品线/部门 JOIN）+ 全量部门行"""
+        module_rows = self._execute("""
+            SELECT m.id as module_id, m.name as module_name, m.description, m.dev_owner, m.module_owner,
+                   m.business_domain,
+                   p.name as product_name,
+                   pl.name as product_line_name,
+                   d.name as dept_name, d.id as dept_id, d.parent_id, d.level
+            FROM modules m
+            LEFT JOIN products p ON m.product_id = p.id
+            LEFT JOIN product_lines pl ON p.product_line_id = pl.id
+            LEFT JOIN departments d ON m.department_id = d.id
+            WHERE m.name IS NOT NULL AND m.is_deleted = FALSE
+        """)
+        dept_rows = self._execute("SELECT id, name, parent_id, level FROM departments")
+        return module_rows, dept_rows
+
+    def get_department_tree(self) -> list[dict]:
+        """获取部门树原始行（按 level, name 排序）"""
+        return self._execute(
+            "SELECT id, name, parent_id, level, code, dir_name FROM departments ORDER BY level, name"
+        )
+
+    def get_reports_page(self, category: str = "") -> list[dict]:
+        """获取报表列表（支持分类过滤）"""
+        if category:
+            return self._execute(
+                "SELECT id, title, week, year, category, dept_summary, path, created_at "
+                "FROM reports WHERE is_deleted = FALSE AND category = ? "
+                "ORDER BY year DESC NULLS LAST, week DESC",
+                (category,)
+            )
+        return self._execute(
+            "SELECT id, title, week, year, category, dept_summary, path, created_at "
+            "FROM reports WHERE is_deleted = FALSE "
+            "ORDER BY year DESC NULLS LAST, week DESC"
+        )
+
+    def get_hot_keywords(self, days: int = 30, limit: int = 20) -> list[dict]:
+        """获取搜索热词（最近 N 天 GROUP BY query）"""
+        from datetime import datetime as _dt, timedelta
+        since = (_dt.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+        rows = self._execute(
+            "SELECT query, COUNT(*) as cnt FROM search_logs "
+            "WHERE created_at >= :since AND query IS NOT NULL AND query != '' "
+            "GROUP BY query ORDER BY cnt DESC LIMIT :limit",
+            {"since": since, "limit": limit}
+        )
+        return [{"word": r["query"], "count": r["cnt"]} for r in rows]
 
     # ══════ 文档-部门关联（多对多）══════
 
@@ -981,3 +1343,14 @@ tickets: {json.dumps(faq.tickets, ensure_ascii=False) if faq.tickets else '[]'}
                 migrated += 1
 
         return migrated
+
+    # ══════ 单例工厂（全项目共享连接池）══════
+
+_repo_instance = None
+
+def get_repo() -> "DBRepository":
+    """DBRepository 单例工厂——全项目共享一个 Engine + 连接池，避免每次请求新建连接"""
+    global _repo_instance
+    if _repo_instance is None:
+        _repo_instance = DBRepository()
+    return _repo_instance

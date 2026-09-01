@@ -82,8 +82,8 @@ def confluence_html_to_md(html):
 
 def save_to_db(title, content, week, year, category, path):
     """保存到数据库（DBRepository 按 .env 自动走 PostgreSQL）"""
-    from repository import DBRepository
-    repo = DBRepository()
+    from repository import get_repo
+    repo = get_repo()
 
     # 检查是否已存在
     existing = repo._execute_one("SELECT id FROM reports WHERE path = ?", (path,))
