@@ -5,15 +5,18 @@
  * 支持编辑文档元数据（部门、产品模块、关键词）
  */
 import React, { useState, useEffect } from 'react';
-import { authFetch } from '../api';
-import { Typography, Card, Table, Tag, Input, Button, Spin, Empty, Modal, AutoComplete, message } from 'antd';
-import { SearchOutlined, EditOutlined } from '@ant-design/icons';
+import { authFetch, getDocumentDeptIds } from '../api';
+import { Typography, Card, Table, Tag, Input, Button, Spin, Empty, Modal, AutoComplete, Space, message } from 'antd';
+import { SearchOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import ModuleSelect from './ModuleSelect';
 import DeptCascader from './DeptCascader';
+import { useAppContext } from './AppContext';
 
 const { Text } = Typography;
 
 function DeptBrowser({ deptId, deptName, dept, dept3, isDark, onSelectDoc }) {
+  const { userRole } = useAppContext();
+  const isAdmin = userRole === 'admin';
   // 兼容旧 props：dept/dept3 作为 fallback
   const effectiveDeptId = deptId || '';
   const effectiveDeptName = deptName || dept3 || dept || '';
@@ -27,6 +30,7 @@ function DeptBrowser({ deptId, deptName, dept, dept3, isDark, onSelectDoc }) {
   const [editDept, setEditDept] = useState('');
   const [editDeptIds, setEditDeptIds] = useState([]);  // 部门ID数组
   const [editProduct, setEditProduct] = useState('');
+  const [editModuleId, setEditModuleId] = useState(0);  // 模块ID
   const [editKeywords, setEditKeywords] = useState('');
   const [editFilename, setEditFilename] = useState('');
   const [saving, setSaving] = useState(false);
@@ -58,10 +62,14 @@ function DeptBrowser({ deptId, deptName, dept, dept3, isDark, onSelectDoc }) {
   const openEdit = (record) => {
     setEditRecord(record);
     setEditDept(record.dept || '');
-    setEditDeptIds([]);  // 从已有文档中难以恢复ID，暂为空
-    setEditProduct(record.product || '');
+    setEditProduct(record.module || record.product || '');
+    setEditModuleId(record.module_id || 0);
     setEditKeywords((record.keywords || []).join(', '));
     setEditFilename(record.name || '');
+    // 从 document_departments 表加载已关联的部门 ID
+    getDocumentDeptIds(record.path)
+      .then(ids => setEditDeptIds(ids))
+      .catch(() => setEditDeptIds([]));
     setEditModal(true);
   };
 
@@ -72,7 +80,9 @@ function DeptBrowser({ deptId, deptName, dept, dept3, isDark, onSelectDoc }) {
       const params = new URLSearchParams({
         path: editRecord.path,
         dept: editDept,
-        product: editProduct,
+        product: editProduct,       // 产品名称
+        module: editProduct,        // 模块名称（编辑弹窗中"产品模块"字段实际就是模块名）
+        module_id: String(editModuleId),  // 模块ID（ID优先）
         keywords: editKeywords,
       });
       if (editDeptIds.length > 0) {
@@ -92,6 +102,29 @@ function DeptBrowser({ deptId, deptName, dept, dept3, isDark, onSelectDoc }) {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleDelete = (record) => {
+    Modal.confirm({
+      title: '确认删除',
+      content: `确定要删除文档「${record.name}」吗？删除后不可恢复。`,
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          // ID 优先（整数无编码歧义），回退用 path
+          const idParam = record.db_id ? `&id=${record.db_id}` : '';
+          const resp = await authFetch(`/api/document/delete?path=${encodeURIComponent(record.path)}${idParam}`);
+          const data = await resp.json();
+          if (!resp.ok || data.error) throw new Error(data.error || '删除失败');
+          message.success('文档已删除');
+          loadDocs();
+        } catch (err) {
+          message.error(`删除失败: ${err.message}`);
+        }
+      },
+    });
   };
 
   const borderColor = isDark ? '#303030' : '#ebeef5';
@@ -142,7 +175,7 @@ function DeptBrowser({ deptId, deptName, dept, dept3, isDark, onSelectDoc }) {
                 render: text => <Text strong style={{ fontSize: 14, color: isDark ? '#e5e5e5' : '#303133' }}>{text}</Text>,
               },
               {
-                title: '产品模块', dataIndex: 'product', key: 'product', width: 110,
+                title: '产品模块', dataIndex: 'module', key: 'module', width: 110,
                 render: text => <span style={{ color: isDark ? '#bbb' : '#606266', whiteSpace: 'nowrap' }}>{text || '-'}</span>,
               },
               {
@@ -160,14 +193,19 @@ function DeptBrowser({ deptId, deptName, dept, dept3, isDark, onSelectDoc }) {
                 )),
               },
               {
-                title: '操作', key: 'actions', width: 60,
+                title: '操作', key: 'actions', width: 90,
                 render: (_, record) => (
-                  <Button type="link" size="small" icon={<EditOutlined />}
-                    onClick={(e) => { e.stopPropagation(); openEdit(record); }}
-                    style={{ fontSize: 12, padding: 0 }} />
+                  <Space size={0}>
+                    <Button type="link" size="small" icon={<EditOutlined />}
+                      onClick={(e) => { e.stopPropagation(); openEdit(record); }}
+                      style={{ fontSize: 12, padding: '0 4px' }} />
+                    <Button type="link" size="small" danger icon={<DeleteOutlined />}
+                      onClick={(e) => { e.stopPropagation(); handleDelete(record); }}
+                      style={{ fontSize: 12, padding: '0 4px' }} />
+                  </Space>
                 ),
               },
-            ]}
+            ].filter(col => isAdmin || col.key !== 'actions')}
             components={{
               header: {
                 cell: (props) => (
@@ -223,7 +261,15 @@ function DeptBrowser({ deptId, deptName, dept, dept3, isDark, onSelectDoc }) {
           </div>
           <div>
             <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>产品模块</Text>
-            <ModuleSelect value={editProduct} onChange={setEditProduct} placeholder="搜索或输入模块名" />
+            <ModuleSelect value={editProduct} onChange={(name, id, info) => {
+              setEditProduct(name);
+              setEditModuleId(id || 0);
+              // 选择已有模块 → 自动覆盖关联字段；输入自定义名称 → info 为空，不动
+              if (info && info.moduleId) {
+                if (info.dept) setEditDept(info.dept);
+                if (info.deptId) setEditDeptIds([info.deptId]);
+              }
+            }} placeholder="搜索或输入模块名" />
           </div>
           <div>
             <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>关键词（逗号分隔）</Text>

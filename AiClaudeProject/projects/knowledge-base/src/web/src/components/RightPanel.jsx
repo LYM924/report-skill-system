@@ -20,10 +20,13 @@ import SimpleMarkdown from './SimpleMarkdown';
 import MiniChart from './MiniChart';
 import ModuleSelect from './ModuleSelect';
 import DeptCascader from './DeptCascader';
+import { useAppContext } from './AppContext';
 
 const { Text, Paragraph } = Typography;
 
 function RightPanel({ selectedDoc, onClearDoc, isDark }) {
+  const { userRole } = useAppContext();
+  const isAdmin = userRole === 'admin';
   const [faqs, setFaqs] = useState([]);
   const [docDetail, setDocDetail] = useState(null);
   const [docLoading, setDocLoading] = useState(false);
@@ -143,7 +146,7 @@ function RightPanel({ selectedDoc, onClearDoc, isDark }) {
           <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => { setSelectedFaq(null); setEditingFaq(false); }}
             style={{ padding: '4px 8px', fontSize: 13, color: '#0D9488' }}>返回</Button>
           {!editingFaq ? (
-            <Button type="text" size="small" onClick={handleEditFaq} style={{ fontSize: 12, color: '#0D9488' }}>编辑</Button>
+            isAdmin ? <Button type="text" size="small" onClick={handleEditFaq} style={{ fontSize: 12, color: '#0D9488' }}>编辑</Button> : null
           ) : (
             <div style={{ display: 'flex', gap: 8 }}>
               <Button size="small" onClick={() => setEditingFaq(false)} style={{ fontSize: 12 }}>取消</Button>

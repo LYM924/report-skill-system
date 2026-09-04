@@ -215,7 +215,15 @@ function FaqEditor({ isDark }) {
               <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>所属模块</Text>
               <ModuleSelect
                 value={editModule}
-                onChange={(name, id) => { setEditModule(name); setEditModuleId(id || 0); }}
+                onChange={(name, id, info) => {
+                  setEditModule(name);
+                  setEditModuleId(id || 0);
+                  // 选择已有模块 → 自动覆盖关联字段；输入自定义名称 → info 为空，不动
+                  if (info && info.moduleId) {
+                    if (info.dept) setEditDept(info.dept);
+                    if (info.deptId) setEditDeptIds([info.deptId]);
+                  }
+                }}
                 placeholder="输入模块名搜索..."
               />
             </div>

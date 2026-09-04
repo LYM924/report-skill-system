@@ -15,8 +15,9 @@ import {
   FolderOpenOutlined, AppstoreOutlined, ApartmentOutlined,
   FileTextOutlined, TeamOutlined, QuestionCircleOutlined,
   MenuFoldOutlined, MenuUnfoldOutlined, BarChartOutlined,
-  SettingOutlined, ApiOutlined, UserOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
+import { getVisibleModules } from './admin';
 
 /** 构建产品模块子菜单 */
 function buildProductChildren(menuData) {
@@ -182,12 +183,11 @@ function LeftSidebar({ selectedNav, onNavChange, collapsed, onToggleCollapse, us
         key: 'system-admin',
         label: '系统管理',
         icon: <SettingOutlined />,
-        children: [
-          { key: 'settings-ai', label: '配置中心', icon: <ApiOutlined /> },
-          ...(userRole === 'admin'
-            ? [{ key: 'settings-users', label: '用户管理', icon: <UserOutlined /> }]
-            : []),
-        ],
+        children: getVisibleModules(userRole).map(m => ({
+          key: m.key,
+          label: m.title,
+          icon: m.icon,
+        })),
       },
     ];
   }, [menuData, faqs, deptTree, userRole]);

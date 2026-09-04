@@ -15,6 +15,7 @@ import LeftSidebar from './components/LeftSidebar';
 import CenterContent from './components/CenterContent';
 import RightPanel from './components/RightPanel';
 import { AppProvider } from './components/AppContext';
+import { ADMIN_MODULES } from './components/admin';
 import './App.css';
 
 const { Header, Sider, Content } = Layout;
@@ -41,15 +42,24 @@ function App() {
   const [topTab, setTopTab] = useState('search');
   const [userRole, setUserRole] = useState('user');  // 当前登录用户角色（admin 可见用户管理）
 
-  // 获取当前用户角色（登录后 / 登录状态变化时刷新）
-  useEffect(() => {
+  // 获取当前用户角色（登录状态变化时刷新）
+  const fetchUserRole = useCallback(() => {
     authFetch('/api/auth/me').then(r => {
       if (r.ok) return r.json();
       return null;
     }).then(d => {
-      if (d?.role) setUserRole(d.role);
-    }).catch(() => {});
+      setUserRole(d?.role || 'user');
+    }).catch(() => setUserRole('user'));
   }, []);
+
+  useEffect(() => { fetchUserRole(); }, [fetchUserRole]);
+
+  // 监听登录状态变化事件 → 刷新角色（菜单显隐即时响应）
+  useEffect(() => {
+    const handler = () => fetchUserRole();
+    window.addEventListener('kb-auth-changed', handler);
+    return () => window.removeEventListener('kb-auth-changed', handler);
+  }, [fetchUserRole]);
 
   // 搜索状态
   const [searchResults, setSearchResults] = useState(null);
@@ -135,10 +145,12 @@ function App() {
   }, []);
 
   // 左侧栏点击 → 更新筛选范围，并切回搜索Tab
+  const adminKeys = useMemo(() => new Set(ADMIN_MODULES.map(m => m.key)), []);
   const handleNavChange = (key) => {
     setSelectedNav(key);
-    if (key.startsWith('settings-')) {
-      setTopTab('manage');  // 系统管理页归属知识管理 Tab
+    // 管理类页面（admin 模块注册表中的 key）归属知识管理 Tab
+    if (adminKeys.has(key)) {
+      setTopTab('manage');
       return;
     }
     setTopTab('search');  // 切换到文档搜索Tab，确保中间面板响应用户点击
@@ -176,11 +188,12 @@ function App() {
   // Context 值，避免 props drilling
   const contextValue = useMemo(() => ({
     isDark, setIsDark,
+    userRole,
     selectedDoc, onSelectDoc: setSelectedDoc, onClearDoc: () => setSelectedDoc(null),
     searchResults, onSearchResultsChange: setSearchResults,
     searchScope, onSearchScopeChange: setSearchScope,
     topTab, selectedNav,
-  }), [isDark, selectedDoc, searchResults, searchScope, topTab, selectedNav]);
+  }), [isDark, userRole, selectedDoc, searchResults, searchScope, topTab, selectedNav]);
 
   return (
     <AppProvider value={contextValue}>
@@ -204,7 +217,7 @@ function App() {
           display: 'flex', alignItems: 'center', zIndex: 100,
           flexShrink: 0,
         }}>
-          <TopNav onGoHome={handleGoHome} isDark={isDark} onToggleDark={toggleDark} topTab={topTab} onTabChange={setTopTab} />
+          <TopNav onGoHome={handleGoHome} isDark={isDark} onToggleDark={toggleDark} topTab={topTab} onTabChange={(tab) => { setTopTab(tab); setSelectedNav('all'); }} />
         </Header>
 
         <Layout style={{ flex: 1, overflow: 'hidden' }}>

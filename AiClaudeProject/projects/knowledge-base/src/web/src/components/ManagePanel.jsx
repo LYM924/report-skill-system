@@ -229,8 +229,14 @@ function ManagePanel({ isDark }) {
           </Text>
           <Button type="primary" icon={<ReloadOutlined />}
             onClick={async () => {
-              await authFetch('/api/rebuild');
-              message.success('索引重建完成');
+              const resp = await authFetch('/api/rebuild');
+              if (resp.ok) {
+                message.success('索引重建已启动');
+              } else {
+                const data = await resp.json().catch(() => ({}));
+                message.error(data.error || data.detail || '索引重建失败');
+              }
+              
             }}>
             开始重建
           </Button>
