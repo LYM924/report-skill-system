@@ -4,13 +4,16 @@
  * 卡片式设计，自适应页面宽度
  * 主色：浅青绿（降低饱和度，柔和护眼）
  * 卡片背景：#fafbfc，分割线：浅灰细线，圆角：10-12px
+ *
+ * v2: 新增 👍👎📚 反馈+学习按钮，用户可标记回答并沉淀为知识
  */
 import React, { useState, useRef } from 'react';
 import { authFetch } from '../api';
-import { Typography, Input, Button, Avatar, Tag } from 'antd';
-import { RobotOutlined, LoadingOutlined, SendOutlined, UserOutlined, ThunderboltOutlined, BulbOutlined, FileTextOutlined, LinkOutlined } from '@ant-design/icons';
+import { Typography, Input, Button, Avatar, Tag, Modal, message, Tooltip } from 'antd';
+import { RobotOutlined, LoadingOutlined, SendOutlined, UserOutlined, ThunderboltOutlined, BulbOutlined, FileTextOutlined, LinkOutlined, LikeOutlined, DislikeOutlined, BookOutlined, CheckCircleFilled, DislikeFilled } from '@ant-design/icons';
+import { submitLearningCandidate, autoLearnFromFeedback } from '../api';
 
-const { Text } = Typography;
+const { Text, Paragraph } = Typography;
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
@@ -54,6 +57,11 @@ function ChatMode({ isDark }) {
   const [streaming, setStreaming] = useState(false);
   const abortRef = useRef(null);
   const messagesEndRef = useRef(null);
+  // 每条 AI 消息的反馈状态：msgIndex → 'useful' | 'not_useful' | null
+  const [feedbackMap, setFeedbackMap] = useState({});
+  // 学习弹窗
+  const [learnModal, setLearnModal] = useState({ open: false, query: '', answer: '', idx: -1 });
+  const [learnSubmitting, setLearnSubmitting] = useState(false);
 
   const handleSend = (text) => {
     const msg = (text || input).trim();
@@ -114,6 +122,68 @@ function ChatMode({ isDark }) {
       });
   };
 
+  // 👍 反馈
+  const handleUseful = (idx, query, answer) => {
+    if (feedbackMap[idx]) return;
+    setFeedbackMap(prev => ({ ...prev, [idx]: 'useful' }));
+    // 自动触发学习建议
+    autoLearnFromFeedback({ query, answer, feedback_id: 0, session_id: '' })
+      .then(res => {
+        if (res?.ok) {
+          message.success('已标记有用并加入学习候选池');
+        }
+      })
+      .catch(() => {
+        message.success('已标记有用');
+      });
+  };
+
+  // 👎 反馈
+  const handleNotUseful = (idx) => {
+    if (feedbackMap[idx]) return;
+    setFeedbackMap(prev => ({ ...prev, [idx]: 'not_useful' }));
+    message.info('感谢反馈，我们会持续优化回答');
+  };
+
+  // 📚 学习按钮
+  const handleLearn = (idx) => {
+    const aiMsg = messages[idx];
+    // 找到紧邻的前一条用户消息
+    let userQuery = '';
+    for (let i = idx - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') {
+        userQuery = messages[i].content;
+        break;
+      }
+    }
+    setLearnModal({ open: true, query: userQuery, answer: aiMsg?.content || '', idx });
+  };
+
+  const handleLearnSubmit = async () => {
+    setLearnSubmitting(true);
+    try {
+      const res = await submitLearningCandidate({
+        query: learnModal.query,
+        answer: learnModal.answer,
+        summary: '',  // 后台 AI 自动提取
+        dept: '',
+        module: '',
+        keywords: [],
+        source: 'manual',
+      });
+      if (res?.ok) {
+        message.success('已提交到学习候选池，管理员审核后将沉淀为 FAQ');
+        setLearnModal(prev => ({ ...prev, open: false }));
+      } else {
+        message.error(res?.error || '提交失败');
+      }
+    } catch (e) {
+      message.error('提交失败：' + e.message);
+    } finally {
+      setLearnSubmitting(false);
+    }
+  };
+
   React.useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -159,7 +229,7 @@ function ChatMode({ isDark }) {
         <div style={{ flex: 1 }}>
           <Text strong style={{ fontSize: 17, color: theme.text }}>AI 智能问答</Text>
           <Text type="secondary" style={{ fontSize: 12, display: 'block', color: theme.textSecondary }}>
-            RAG 检索增强 · 基于知识库实时回答 · 引用来源
+            RAG 检索增强 · 基于知识库实时回答 · 支持学习沉淀
           </Text>
         </div>
         <div style={{
@@ -264,21 +334,68 @@ function ChatMode({ isDark }) {
               )}
 
               {/* 消息气泡卡片 */}
-              <div style={{
-                maxWidth: '78%', padding: '12px 18px',
-                borderRadius: msg.role === 'user' ? '12px 12px 4px 12px' : '12px 12px 12px 4px',
-                background: msg.role === 'user'
-                  ? `linear-gradient(135deg, ${COLORS.primary} 0%, #6DAFA0 100%)`
-                  : theme.aiBubble,
-                border: msg.role === 'assistant' ? `1px solid ${theme.border}` : 'none',
-                color: msg.role === 'user' ? '#fff' : theme.text,
-                fontSize: 14, lineHeight: 1.75,
-                whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                boxShadow: msg.role === 'assistant' ? 'none' : `0 1px 3px rgba(91,154,139,0.15)`,
-              }}>
-                {msg.content}
-                {i === messages.length - 1 && msg.role === 'assistant' && streaming && (
-                  <LoadingOutlined style={{ marginLeft: 4, color: COLORS.primary, fontSize: 12 }} />
+              <div style={{ maxWidth: '78%' }}>
+                <div style={{
+                  padding: '12px 18px',
+                  borderRadius: msg.role === 'user' ? '12px 12px 4px 12px' : '12px 12px 12px 4px',
+                  background: msg.role === 'user'
+                    ? `linear-gradient(135deg, ${COLORS.primary} 0%, #6DAFA0 100%)`
+                    : theme.aiBubble,
+                  border: msg.role === 'assistant' ? `1px solid ${theme.border}` : 'none',
+                  color: msg.role === 'user' ? '#fff' : theme.text,
+                  fontSize: 14, lineHeight: 1.75,
+                  whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                  boxShadow: msg.role === 'assistant' ? 'none' : `0 1px 3px rgba(91,154,139,0.15)`,
+                }}>
+                  {msg.content}
+                  {i === messages.length - 1 && msg.role === 'assistant' && streaming && (
+                    <LoadingOutlined style={{ marginLeft: 4, color: COLORS.primary, fontSize: 12 }} />
+                  )}
+                </div>
+
+                {/* AI 回答反馈按钮（仅在回答完成后显示） */}
+                {msg.role === 'assistant' && msg.content && !streaming && (
+                  <div style={{
+                    display: 'flex', gap: 4, marginTop: 6, paddingLeft: 4,
+                  }}>
+                    <Tooltip title={feedbackMap[i] ? undefined : '回答有用'}>
+                      <Button
+                        size="small" type="text"
+                        icon={feedbackMap[i] === 'useful' ? <CheckCircleFilled style={{ color: COLORS.primary }} /> : <LikeOutlined />}
+                        onClick={() => handleUseful(i, messages.slice(0, i).filter(m => m.role === 'user').pop()?.content || '', msg.content)}
+                        disabled={!!feedbackMap[i]}
+                        style={{
+                          fontSize: 12, padding: '0 6px', height: 24,
+                          color: feedbackMap[i] === 'useful' ? COLORS.primary : theme.textSecondary,
+                        }}
+                      />
+                    </Tooltip>
+                    <Tooltip title={feedbackMap[i] ? undefined : '回答没用'}>
+                      <Button
+                        size="small" type="text"
+                        icon={feedbackMap[i] === 'not_useful' ? <DislikeFilled style={{ color: '#EF4444' }} /> : <DislikeOutlined />}
+                        onClick={() => handleNotUseful(i)}
+                        disabled={!!feedbackMap[i]}
+                        style={{
+                          fontSize: 12, padding: '0 6px', height: 24,
+                          color: feedbackMap[i] === 'not_useful' ? '#EF4444' : theme.textSecondary,
+                        }}
+                      />
+                    </Tooltip>
+                    <Tooltip title="沉淀为知识">
+                      <Button
+                        size="small" type="text"
+                        icon={<BookOutlined />}
+                        onClick={() => handleLearn(i)}
+                        style={{
+                          fontSize: 12, padding: '0 6px', height: 24,
+                          color: COLORS.primary,
+                        }}
+                      >
+                        学习
+                      </Button>
+                    </Tooltip>
+                  </div>
                 )}
               </div>
 
@@ -298,6 +415,44 @@ function ChatMode({ isDark }) {
         )}
         <div ref={messagesEndRef} />
       </div>
+
+      {/* ===== 学习确认弹窗 ===== */}
+      <Modal
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <BookOutlined style={{ color: COLORS.primary }} />
+            <span>沉淀为知识</span>
+          </div>
+        }
+        open={learnModal.open}
+        onOk={handleLearnSubmit}
+        onCancel={() => setLearnModal(prev => ({ ...prev, open: false }))}
+        okText="提交学习"
+        cancelText="取消"
+        confirmLoading={learnSubmitting}
+        okButtonProps={{ style: { background: COLORS.primary, borderColor: COLORS.primary } }}
+      >
+        <div style={{ marginBottom: 12 }}>
+          <Text type="secondary" style={{ fontSize: 12 }}>用户问题</Text>
+          <Paragraph style={{ fontSize: 14, margin: '4px 0 0', color: theme.text }}>
+            {learnModal.query}
+          </Paragraph>
+        </div>
+        <div>
+          <Text type="secondary" style={{ fontSize: 12 }}>AI 回答</Text>
+          <Paragraph
+            ellipsis={{ rows: 6, expandable: true, symbol: '展开' }}
+            style={{ fontSize: 13, margin: '4px 0 0', color: theme.text, background: theme.aiBubble, padding: 8, borderRadius: 8 }}
+          >
+            {learnModal.answer}
+          </Paragraph>
+        </div>
+        <div style={{ marginTop: 12, padding: '8px 12px', background: COLORS.primaryLight, borderRadius: 8 }}>
+          <Text style={{ fontSize: 12, color: COLORS.primary }}>
+            💡 提交后，管理员将在「学习中心」审核。审核通过后自动沉淀为 FAQ，后续类似问题可直接命中。
+          </Text>
+        </div>
+      </Modal>
 
       {/* ===== 分割线 ===== */}
       <div style={{ height: 1, background: theme.divider, margin: '0 0 12px 0', flexShrink: 0 }} />

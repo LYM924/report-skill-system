@@ -18,7 +18,7 @@
 
 import React, { useState, useEffect, useMemo, useRef, Suspense } from 'react';
 import { authFetch } from '../api';
-import { Typography, Card, Tag, Input, Button, Select, Row, Col, Spin, Empty, Table, Tooltip, Skeleton } from 'antd';
+import { Typography, Card, Tag, Input, Button, Select, Row, Col, Spin, Empty, Table, Tooltip, Skeleton, Result } from 'antd';
 import {
   SearchOutlined, RobotOutlined, LinkOutlined, FileSearchOutlined, CloudUploadOutlined,
   BulbOutlined, LoadingOutlined, HistoryOutlined, CloseOutlined,
@@ -26,13 +26,13 @@ import {
   InfoCircleOutlined, TeamOutlined,
 } from '@ant-design/icons';
 import { searchKnowledge, getDashboardStats, getDocuments } from '../api';
+import { useAppContext } from './AppContext';
 import AISummaryPanel from './AISummaryPanel';
 import ResultCard from './ResultCard';
 import FaqBrowser from './FaqBrowser';
 import ReportBrowser from './ReportBrowser';
 import DeptBrowser from './DeptBrowser';
-import SettingsCenter from './SettingsCenter';
-import UserManager from './UserManager';
+import { findModule } from './admin';
 
 // 非首屏 Tab 组件懒加载，减少首屏 JS bundle 体积
 const StatsDashboard = React.lazy(() => import('./StatsDashboard'));
@@ -58,6 +58,7 @@ const quickActions = [
 ];
 
 function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, searchScope, onSearchScopeChange, isDark, topTab, selectedNav }) {
+  const { userRole } = useAppContext();
   const [searchQuery, setSearchQuery] = useState(() => {
     try { return localStorage.getItem('kb_last_query') || ''; } catch { return ''; }
   });
@@ -278,14 +279,39 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
   const hasResults = searchResults && searchResults.results && searchResults.results.length > 0;
   const keywords = searchResults?.tokens || [];
 
-  // 系统管理页（左侧菜单 系统管理 → 配置中心/用户管理）
-  // 必须在 topTab 判断之前：点击系统管理菜单时 topTab 会切到 manage
-  if (selectedNav === 'settings-ai') return <SettingsCenter isDark={isDark} />;
-  if (selectedNav === 'settings-users') return <UserManager isDark={isDark} />;
+  // 系统管理页 — 仅在知识管理 Tab 下渲染（点击顶部其他 Tab 时 selectedNav 会被清除为 'all'）
+  if (topTab === 'manage') {
+    const adminModule = findModule(selectedNav, userRole);
+    if (adminModule) {
+      if (!adminModule._loaded) {
+        // 角色不足时显示无权限
+        if (adminModule.role === 'admin' && userRole !== 'admin') {
+          return <Result status="403" title="无权限" subTitle="此功能仅管理员可用" />;
+        }
+      }
+      const AdminComponent = adminModule.component;
+      return (
+        <Suspense fallback={<TabFallback />}>
+          <AdminComponent />
+        </Suspense>
+      );
+    }
+    // 选中了"知识管理"Tab 但没有匹配的子模块 → 渲染默认 ManagePanel
+    if (userRole !== 'admin') {
+      return <Result status="403" title="仅管理员可进入知识管理" subTitle="文档上传、FAQ编辑、关键词管理、索引重建等操作需要管理员权限" />;
+    }
+    return <Suspense fallback={<TabFallback />}><ManagePanel isDark={isDark} /></Suspense>;
+  }
 
   if (topTab === 'stats') return <Suspense fallback={<TabFallback />}><StatsDashboard isDark={isDark} /></Suspense>;
   if (topTab === 'ai') return <Suspense fallback={<TabFallback />}><ChatMode isDark={isDark} /></Suspense>;
-  if (topTab === 'manage') return <Suspense fallback={<TabFallback />}><ManagePanel isDark={isDark} /></Suspense>;
+  if (topTab === 'learning') {
+    if (userRole !== 'admin') {
+      return <Result status="403" title="仅管理员可进入学习中心" subTitle="学习中心用于审核 AI 提取的知识并沉淀为 FAQ" />;
+    }
+    const LearningCenter = React.lazy(() => import('./LearningCenter'));
+    return <Suspense fallback={<TabFallback />}><LearningCenter isDark={isDark} /></Suspense>;
+  }
 
   // FAQ 部门浏览（左侧 FAQ库 点击部门触发）
   if (selectedNav && selectedNav.startsWith('faq-dept-')) {
@@ -801,7 +827,7 @@ function CenterContent({ searchResults, onSearchResultsChange, onSelectDoc, sear
               dataSource={documents}
               columns={[
                 { title: '文档', dataIndex: 'name', key: 'name', render: text => <Text strong style={{ fontSize: 13, color: '#0D9488', cursor: 'pointer' }}>{text}</Text> },
-                { title: '产品记录', dataIndex: 'product', key: 'product', render: text => <span style={{ color: '#555' }}>{text || '-'}</span> },
+                { title: '产品模块', dataIndex: 'module', key: 'module', render: text => <span style={{ color: '#555' }}>{text || '-'}</span> },
                 { title: '所属部门', dataIndex: 'dept', key: 'dept', render: text => <span style={{ color: '#555' }}>{text || '-'}</span> },
                 { title: '更新时间', dataIndex: 'updated', key: 'updated', render: text => <span style={{ color: '#555' }}>{text || '-'}</span> },
               ]}

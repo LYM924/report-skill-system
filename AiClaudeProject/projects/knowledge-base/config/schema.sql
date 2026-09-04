@@ -194,3 +194,30 @@ CREATE TABLE IF NOT EXISTS keyword_mappings (
 CREATE INDEX IF NOT EXISTS idx_kwm_keyword ON keyword_mappings(keyword_id);
 CREATE INDEX IF NOT EXISTS idx_kwm_module ON keyword_mappings(module_id);
 CREATE INDEX IF NOT EXISTS idx_kwm_dept ON keyword_mappings(department_id);
+
+-- ============================================================================
+-- 学习候选池：AI 回答 / 用户反馈中有价值的知识，经审核后沉淀为 FAQ
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS learning_candidates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT DEFAULT 'ai_answer',    -- ai_answer | user_feedback | manual
+    query TEXT NOT NULL,                -- 原始用户问题
+    answer TEXT NOT NULL,               -- AI 回答 / 用户补充答案
+    summary TEXT DEFAULT '',            -- AI 提炼的知识摘要（精简版）
+    dept TEXT DEFAULT '',               -- 归属部门（AI 推断 + 人工修正）
+    module TEXT DEFAULT '',             -- 归属模块
+    keywords TEXT DEFAULT '[]',         -- 提取的关键词 JSON
+    status INTEGER DEFAULT 0,           -- 0待审核 / 1已通过 / 2已拒绝 / 3已过期
+    review_note TEXT DEFAULT '',         -- 审核备注
+    reviewed_by TEXT DEFAULT '',
+    reviewed_at TEXT DEFAULT '',
+    feedback_id INTEGER DEFAULT 0,       -- 关联 feedback 表 ID
+    session_id TEXT DEFAULT '',          -- 关联会话 ID
+    faq_code TEXT DEFAULT '',            -- 通过后生成的 FAQ 编号
+    created_by TEXT DEFAULT '',
+    create_time TEXT DEFAULT '',
+    update_time TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_lc_status ON learning_candidates(status);
+CREATE INDEX IF NOT EXISTS idx_lc_dept ON learning_candidates(dept);
+CREATE INDEX IF NOT EXISTS idx_lc_created ON learning_candidates(create_time);
