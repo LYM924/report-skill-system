@@ -12,9 +12,10 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from fastapi.responses import JSONResponse, Response
 
 import main
-from auth import verify_token
+from auth import verify_token, require_admin
 from config import settings
 from repository import get_repo
+from service.audit import log_action
 
 router = APIRouter(tags=["仪表盘"])
 
@@ -240,9 +241,17 @@ async def menu(user: str = Depends(verify_token)):
         "businessModules": convert(biz_tree),
         "deptKnowledge": convert(dept_tree),
         "kbDept": convert(kb_dept),
-        # 模块扁平选项（前端选择器携带 module_id 用，ID 唯一避免同名歧义）
-        "moduleOptions": [{"id": r["module_id"], "name": r["module_name"]}
-                          for r in rows if r["module_name"]],
+        # 模块扁平选项（前端选择器携带 module_id + 关联字段，支持选择模块后联动填充部门/产品）
+        "moduleOptions": [{
+            "id": r["module_id"],
+            "name": r["module_name"],
+            "productId": r.get("product_id"),
+            "product": r.get("product_name", ""),
+            "productLine": r.get("product_line_name", ""),
+            "deptId": r.get("dept_id"),
+            "dept": r.get("dept_name", ""),
+            "domain": r.get("business_domain", ""),
+        } for r in rows if r["module_name"]],
     }
 
 
@@ -299,7 +308,7 @@ async def departments_options(user: str = Depends(verify_token)):
 
 
 @router.get("/rebuild")
-async def rebuild_index(background_tasks: BackgroundTasks, user: str = Depends(verify_token)):
+async def rebuild_index(background_tasks: BackgroundTasks, user: str = Depends(require_admin)):
     """重建索引（后台异步执行，不阻塞请求）"""
     def _rebuild():
         try:
@@ -309,6 +318,7 @@ async def rebuild_index(background_tasks: BackgroundTasks, user: str = Depends(v
             pass
 
     background_tasks.add_task(_rebuild)
+    log_action(user, "system.rebuild")
     return {"ok": True, "message": "索引重建已启动（后台执行）"}
 
 

@@ -70,6 +70,10 @@ class Settings:
     ANTHROPIC_AUTH_TOKEN: str = os.getenv("ANTHROPIC_AUTH_TOKEN", "")
     ANTHROPIC_BASE_URL: str = os.getenv("ANTHROPIC_BASE_URL", "")
 
+    # Confluence SSO
+    CONFLUENCE_BASE_URL: str = os.getenv("CONFLUENCE_BASE_URL", "https://cf.cai-inc.com")
+    SSO_ENABLED: bool = os.getenv("SSO_ENABLED", "1").strip() in ("1", "true", "yes")
+
     # API Key（兼容旧版）
     KB_API_KEY: str = os.getenv("KB_API_KEY", "")
 

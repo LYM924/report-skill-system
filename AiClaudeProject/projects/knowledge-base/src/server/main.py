@@ -80,7 +80,7 @@ app.add_middleware(
 )
 
 # 注册路由
-from routes import search, documents, faq, dashboard, keywords as kw_routes, auth_router, health, config_center
+from routes import search, documents, faq, dashboard, keywords as kw_routes, auth_router, health, config_center, audit_router, settings_router, mapping_router, learning_router
 
 app.include_router(search.router, prefix="/api")
 app.include_router(documents.router, prefix="/api")
@@ -90,6 +90,10 @@ app.include_router(kw_routes.router, prefix="/api")
 app.include_router(auth_router.router, prefix="/api")
 app.include_router(health.router, prefix="/api")
 app.include_router(config_center.router, prefix="/api")
+app.include_router(audit_router.router, prefix="/api")
+app.include_router(settings_router.router, prefix="/api")
+app.include_router(mapping_router.router, prefix="/api")
+app.include_router(learning_router.router, prefix="/api")
 
 # 静态文件（前端构建产物 runtime/static）
 static_dir = HERE.parent.parent / "runtime" / "static"

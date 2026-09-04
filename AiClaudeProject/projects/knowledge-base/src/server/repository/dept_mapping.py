@@ -27,6 +27,16 @@ DEPT_TO_PATH = {
     "政采交付": "gov-procurement-delivery",
     "体验运营": "ux-operations",
     "政采质量保障": "gov-procurement-qa",
+    # 乐采事业部三级部门（2026-09 补充，来源：乐采事业部模块与部门关联数据）
+    "乐采事业部": "le-cai-shi-ye-bu",
+    "乐采技术支撑": "le-cai-ji-shu-zhi-cheng",
+    "乐采质量评估（Evals）": "le-cai-zhi-liang-ping-gu",
+    "电子卖场": "dian-zi-mai-chang",
+    "招采平台": "zhao-cai-ping-tai",
+    "采管平台": "cai-guan-ping-tai",
+    "创新产品": "chuang-xin-chan-pin",
+    "质量保障": "zhi-liang-bao-zhang",
+    "戎采产研部": "rong-cai-chan-yan-bu",
 }
 PATH_TO_DEPT = {v: k for k, v in DEPT_TO_PATH.items()}
 

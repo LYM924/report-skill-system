@@ -1,0 +1,35 @@
+# 数据库文件（运行时产物，不入库）
+*.db
+
+# 环境变量（含密钥，不入库）
+.env
+
+# 运行时产物
+runtime/cache/
+runtime/logs/
+runtime/static/
+
+# FAQ 导出产物
+data/faq/export/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Node
+node_modules/
+
+# 数据库备份
+backups/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+*.pdf
+
+# 索引缓存
+*.pkl
+*.faiss

@@ -15,12 +15,13 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 import main
-from auth import verify_token
+from auth import verify_token, require_admin
 from config import settings
 from repository import get_repo
 from repository.base import FAQ
 from repository.dept_mapping import get_dept_path, get_submodule_path
 from service.paths import safe_data_path
+from service.audit import log_action
 from routes.health import record_write_failure
 
 router = APIRouter(tags=["FAQ"])
@@ -132,7 +133,7 @@ async def list_faqs(id: str = Query(""), user: str = Depends(verify_token)):
 
 
 @router.get("/faq/delete")
-async def delete_faq(path: str = Query(...), user: str = Depends(verify_token)):
+async def delete_faq(path: str = Query(...), user: str = Depends(require_admin)):
     """删除 FAQ：DB 软删除（主）+ 物理删文件（辅，文件已不存在也继续）+ 重建索引
 
     修复：不再先检查文件是否存在再决定能否删除。
@@ -160,6 +161,7 @@ async def delete_faq(path: str = Query(...), user: str = Depends(verify_token)):
         logging.getLogger("faq").warning(f"FAQ 文件已缺失，仅 DB 软删除: {path}")
 
     _reload_after_faq_change()
+    log_action(user, "faq.delete", target=path)
     return {"ok": True, "message": "已删除"}
 
 
@@ -237,7 +239,7 @@ async def save_faq(
     status: str = Query("draft"),
     dept_id: int = Query(0),
     module_id: int = Query(0),
-    user: str = Depends(verify_token),
+    user: str = Depends(require_admin),
 ):
     """保存 FAQ：单文件 + faqs 表 + 关键词双表 + 重建索引
 
@@ -364,6 +366,7 @@ tickets: {json.dumps(tickets, ensure_ascii=False)}
         record_write_failure("keyword_write")
 
     _reload_after_faq_change()
+    log_action(user, "faq.save", target=id or "new")
     return {"ok": True, "faq_id": id, "path": rel_path}
 
 
@@ -372,7 +375,7 @@ tickets: {json.dumps(tickets, ensure_ascii=False)}
 async def faq_import(
     file: UploadFile = None,
     background_tasks: BackgroundTasks = None,
-    user: str = Depends(verify_token),
+    user: str = Depends(require_admin),
 ):
     """FAQ Excel 批量导入（multipart）：写 .md 文件 + 回导 faqs 表 + 重建索引"""
     if file is None:
@@ -462,6 +465,7 @@ tickets: []
     except Exception:
         record_write_failure("faq_save")
     _reload_after_faq_change()
+    log_action(user, "faq.import", detail=f"count={success}")
     return {"ok": True, "success": success, "fail": fail}
 
 

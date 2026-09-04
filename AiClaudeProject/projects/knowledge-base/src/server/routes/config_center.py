@@ -8,8 +8,9 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional
 
-from auth import verify_token
+from auth import verify_token, require_admin
 from service import ai_config
+from service.audit import log_action
 
 router = APIRouter(tags=["系统管理"])
 
@@ -83,11 +84,6 @@ async def test_ai_config(body: AIConfigTestBody, user: str = Depends(verify_toke
 
 # ══════ 用户管理（仅管理员）══════
 
-def _require_admin(user: str):
-    if not ai_config.is_admin(user):
-        return JSONResponse({"error": "仅管理员可操作"}, status_code=403)
-    return None
-
 
 class UserCreateBody(BaseModel):
     username: str
@@ -99,19 +95,17 @@ class PasswordBody(BaseModel):
     password: str
 
 
+class RoleBody(BaseModel):
+    role: str
+
+
 @router.get("/users")
-async def list_users(user: str = Depends(verify_token)):
-    resp = _require_admin(user)
-    if resp:
-        return resp
+async def list_users(user: str = Depends(require_admin)):
     return {"users": ai_config.list_users()}
 
 
 @router.post("/users")
-async def create_user(body: UserCreateBody, user: str = Depends(verify_token)):
-    resp = _require_admin(user)
-    if resp:
-        return resp
+async def create_user(body: UserCreateBody, user: str = Depends(require_admin)):
     username = body.username.strip()
     if not username or not body.password:
         return JSONResponse({"error": "用户名和密码必填"}, status_code=422)
@@ -120,28 +114,35 @@ async def create_user(body: UserCreateBody, user: str = Depends(verify_token)):
     result = ai_config.create_user(username, body.password, body.role)
     if "error" in result:
         return JSONResponse(result, status_code=409)
+    log_action(user, "user.create", target=username, detail=f"role={body.role}")
     return {"ok": True, "username": username}
 
 
 @router.put("/users/{username}/password")
-async def reset_password(username: str, body: PasswordBody, user: str = Depends(verify_token)):
-    resp = _require_admin(user)
-    if resp:
-        return resp
+async def reset_password(username: str, body: PasswordBody, user: str = Depends(require_admin)):
     if not body.password:
         return JSONResponse({"error": "密码不能为空"}, status_code=422)
     if not ai_config.update_user_password(username, body.password):
         return JSONResponse({"error": "用户不存在"}, status_code=404)
+    log_action(user, "user.reset_password", target=username)
     return {"ok": True}
 
 
 @router.delete("/users/{username}")
-async def delete_user(username: str, user: str = Depends(verify_token)):
-    resp = _require_admin(user)
-    if resp:
-        return resp
+async def delete_user(username: str, user: str = Depends(require_admin)):
     if username == user:
         return JSONResponse({"error": "不能删除自己"}, status_code=400)
     if not ai_config.delete_user(username):
         return JSONResponse({"error": "用户不存在"}, status_code=404)
+    log_action(user, "user.delete", target=username)
+    return {"ok": True}
+
+
+@router.put("/users/{username}/role")
+async def update_user_role(username: str, body: RoleBody, user: str = Depends(require_admin)):
+    if body.role not in ("admin", "user"):
+        return JSONResponse({"error": "角色必须是 admin 或 user"}, status_code=422)
+    if not ai_config.update_user_role(username, body.role):
+        return JSONResponse({"error": "用户不存在"}, status_code=404)
+    log_action(user, "user.update_role", target=username, detail=f"new_role={body.role}")
     return {"ok": True}

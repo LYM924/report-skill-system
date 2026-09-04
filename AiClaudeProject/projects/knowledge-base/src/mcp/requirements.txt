@@ -1,0 +1,6 @@
+# MCP Server 依赖（独立于 FastAPI 后端）
+# MCP SDK
+mcp>=2.1.0
+
+# HTTP 客户端（与后端共享版本，MCP Server 调用 FastAPI API 需要）
+httpx>=0.27.0

@@ -105,6 +105,15 @@ def delete_user(username: str) -> bool:
     return True
 
 
+def update_user_role(username: str, new_role: str) -> bool:
+    repo = get_repo()
+    exists = repo._execute_one("SELECT id FROM users WHERE username = ? AND is_deleted = FALSE", (username,))
+    if not exists:
+        return False
+    repo._execute_write("UPDATE users SET role = ?, updated_at = NOW() WHERE username = ?", (new_role, username))
+    return True
+
+
 def is_admin(username: str) -> bool:
     if not username:
         return False
@@ -308,15 +317,27 @@ def save_ai_config(username: str, model: str, base_url: str, api_key: str, max_t
     # 管理员保存 = 全机联动：同步写入共享AI环境文件（终端 Claude Code 等统一读取）
     sync_shared_env(username, model_final, base_url or "",
                     api_key or decrypt_key(enc), protocol or "anthropic")
+    # 审计日志
+    from service.audit import log_action
+    log_action(username, "config.ai_save", detail=json.dumps({"model": model_final, "provider": provider, "protocol": protocol}, ensure_ascii=False))
     return {"ok": True}
 
 
 def resolve_ai_config(username: str) -> dict:
-    """AI 调用时的最终配置解析：用户配置优先 → 服务器环境回退 → None（不可用）"""
+    """AI 调用时的最终配置解析：用户配置优先 → 服务器环境回退 → None（不可用）
+
+    环境回退受 system_settings.ai_env_fallback 控制：
+    - "1"（默认）: 未配置 AI 的用户可使用服务器共享密钥
+    - "0": 未配置 AI 的用户不可使用 AI 功能（必须自行配置密钥）
+    """
     cfg = get_ai_config(username)
     if cfg.get("api_key"):
         return {**cfg, "source": "user"}
-    # 环境回退（Anthropic 协议）
+    # 环境回退（受开关控制）
+    from routes.settings_router import get_system_setting
+    allow_fallback = get_system_setting("ai_env_fallback", "1") == "1"
+    if not allow_fallback:
+        return None
     env_key = os.environ.get("ANTHROPIC_AUTH_TOKEN", "") or os.environ.get("ANTHROPIC_API_KEY", "")
     if env_key:
         from service import claude_stream

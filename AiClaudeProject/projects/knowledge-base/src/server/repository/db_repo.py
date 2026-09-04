@@ -97,6 +97,32 @@ class DBRepository(KnowledgeRepository):
                             conn.execute(text(stmt))
                         except Exception:
                             pass
+                # 审计日志表
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS audit_logs (
+                        id SERIAL PRIMARY KEY,
+                        username VARCHAR(100) NOT NULL,
+                        action VARCHAR(50) NOT NULL,
+                        target VARCHAR(200),
+                        detail TEXT,
+                        ip VARCHAR(50),
+                        created_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_logs(created_at DESC)"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(username)"))
+
+                # 系统配置表
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS system_settings (
+                        key VARCHAR(100) PRIMARY KEY,
+                        value TEXT NOT NULL,
+                        description VARCHAR(500),
+                        category VARCHAR(50) DEFAULT 'general',
+                        updated_by VARCHAR(100),
+                        updated_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
                 conn.commit()
 
     def _execute(self, sql, params=None):
@@ -1006,7 +1032,8 @@ tickets: {json.dumps(faq.tickets, ensure_ascii=False) if faq.tickets else '[]'}
         rows = self._execute("""
             SELECT m.name as module_name,
                    p.name as product_name, pl.name as product_line_name,
-                   d.name as dept_name, m.business_domain
+                   d.name as dept_name, m.business_domain,
+                   m.associated_dept, m.associated_dept_ids, m.sub_dept
             FROM modules m
             LEFT JOIN products p ON m.product_id = p.id
             LEFT JOIN product_lines pl ON p.product_line_id = pl.id
@@ -1020,6 +1047,9 @@ tickets: {json.dumps(faq.tickets, ensure_ascii=False) if faq.tickets else '[]'}
                     "product_line": r["product_line_name"] or "",
                     "dept": r["dept_name"] or "",
                     "domain": r["business_domain"] or "",
+                    "associated_dept": r["associated_dept"] or "",
+                    "associated_dept_ids": r["associated_dept_ids"] or "",
+                    "sub_dept": r["sub_dept"] or "",
                 }
         return result
 
@@ -1074,14 +1104,14 @@ tickets: {json.dumps(faq.tickets, ensure_ascii=False) if faq.tickets else '[]'}
             placeholders = ", ".join(f":p{i}" for i in range(len(paths)))
             params = {f"p{i}": p for i, p in enumerate(paths)}
             rows = self._execute(
-                "SELECT path, title, dept, module, product, product_line, date, keywords "
+                "SELECT id, path, title, dept, dept_id, module, module_id, product, product_line, date, keywords "
                 f"FROM documents WHERE path IN ({placeholders}) AND is_deleted = FALSE "
                 "ORDER BY updated_at DESC NULLS LAST",
                 params
             )
         else:
             rows = self._execute(
-                "SELECT path, title, dept, module, product, product_line, date, keywords "
+                "SELECT id, path, title, dept, dept_id, module, module_id, product, product_line, date, keywords "
                 "FROM documents WHERE is_deleted = FALSE "
                 "ORDER BY updated_at DESC NULLS LAST"
             )
@@ -1114,6 +1144,78 @@ tickets: {json.dumps(faq.tickets, ensure_ascii=False) if faq.tickets else '[]'}
         )
         return True
 
+    def update_document_meta(self, path: str, dept: str = None, dept_id: int = None,
+                             module: str = None, module_id: int = None,
+                             product: str = None, product_line: str = None) -> bool:
+        """更新文档元数据（部门/模块/产品），不改 content 和 path
+
+        仅更新传入的非 None 字段，返回 True 表示成功。
+        """
+        sets = []
+        params = []
+        if dept is not None:
+            sets.append("dept = ?")
+            params.append(dept)
+        if dept_id is not None:
+            sets.append("dept_id = ?")
+            params.append(dept_id or None)  # 0 → NULL
+        if module is not None:
+            sets.append("module = ?")
+            params.append(module)
+        if module_id is not None:
+            sets.append("module_id = ?")
+            params.append(module_id or None)  # 0 → NULL
+        if product is not None:
+            sets.append("product = ?")
+            params.append(product)
+        if product_line is not None:
+            sets.append("product_line = ?")
+            params.append(product_line)
+        if not sets:
+            return False
+        sets.append("updated_at = now()")
+        params.append(path)
+        sql = f"UPDATE documents SET {', '.join(sets)} WHERE path = ? AND is_deleted = FALSE"
+        self._execute_write(sql, params)
+        return True
+
+    def get_document_dept_ids(self, path: str) -> list[int]:
+        """获取文档关联的部门 ID 列表（从 document_departments 表）"""
+        rows = self._execute(
+            "SELECT department_id FROM document_departments WHERE document_path = ?",
+            (path,)
+        )
+        return [r["department_id"] for r in rows]
+
+    def delete_document(self, path: str) -> dict:
+        """逻辑删除文档：is_deleted = TRUE
+
+        返回 {"ok": True, "matched": int}，matched=0 表示未找到记录。
+        """
+        with self.engine.connect() as conn:
+            result = conn.execute(text(
+                "UPDATE documents SET is_deleted = TRUE, updated_at = now() "
+                "WHERE path = :path AND is_deleted = FALSE"
+            ), {"path": path})
+            conn.commit()
+            if result.rowcount > 0:
+                return {"ok": True, "matched": result.rowcount}
+        return {"ok": False, "matched": 0, "error": "文档不存在"}
+
+    def clear_document_departments(self, path: str):
+        """删除文档的所有部门关联（document_departments 表）"""
+        self._execute_write(
+            "DELETE FROM document_departments WHERE document_path = ?",
+            (path,)
+        )
+
+    def clear_document_keywords(self, path: str):
+        """删除文档关联的关键词映射（keyword_mappings 表，kb_path 匹配）"""
+        self._execute_write(
+            "DELETE FROM keyword_mappings WHERE kb_path = ?",
+            (path,)
+        )
+
     def get_search_log_count_since(self, since: str = None) -> int:
         """获取指定日期以来的搜索日志数量（since=None 时统计全量）"""
         if since:
@@ -1141,6 +1243,8 @@ tickets: {json.dumps(faq.tickets, ensure_ascii=False) if faq.tickets else '[]'}
         module_rows = self._execute("""
             SELECT m.id as module_id, m.name as module_name, m.description, m.dev_owner, m.module_owner,
                    m.business_domain,
+                   m.associated_dept, m.associated_dept_ids, m.sub_dept,
+                   m.product_id,
                    p.name as product_name,
                    pl.name as product_line_name,
                    d.name as dept_name, d.id as dept_id, d.parent_id, d.level
@@ -1343,6 +1447,380 @@ tickets: {json.dumps(faq.tickets, ensure_ascii=False) if faq.tickets else '[]'}
                 migrated += 1
 
         return migrated
+
+    # ══════ 模块关联映射管理（v3: ID+名称双写 + 触发器自动同步） ══════
+
+    def get_module_by_id(self, module_id: int) -> dict:
+        """按 ID 获取模块详情（含关联：部门/产品/业务域）"""
+        row = self._execute_one("""
+            SELECT m.*, d.name as dept_name, p.name as product_name,
+                   pl.name as product_line_name, pl.id as product_line_id
+            FROM modules m
+            LEFT JOIN departments d ON m.department_id = d.id
+            LEFT JOIN products p ON m.product_id = p.id
+            LEFT JOIN product_lines pl ON p.product_line_id = pl.id
+            WHERE m.id = :mid AND m.is_deleted = FALSE
+        """, {"mid": module_id})
+        if not row:
+            return None
+        # 附加 L3 部门列表
+        dept_rows = self._execute("""
+            SELECT md.department_id, d.name as dept_name, md.is_primary
+            FROM module_departments md
+            JOIN departments d ON md.department_id = d.id
+            WHERE md.module_id = :mid
+            ORDER BY md.is_primary DESC, d.name
+        """, {"mid": module_id})
+        row["dept_ids"] = [r["department_id"] for r in dept_rows]
+        row["dept_names"] = [r["dept_name"] for r in dept_rows]
+        row["primary_dept_id"] = next((r["department_id"] for r in dept_rows if r["is_primary"]), None)
+        # 附加业务域列表
+        domain_rows = self._execute("""
+            SELECT md.domain_id, bd.name as domain_name, md.is_primary
+            FROM module_domains md
+            JOIN business_domains bd ON md.domain_id = bd.id
+            WHERE md.module_id = :mid
+            ORDER BY md.is_primary DESC, bd.name
+        """, {"mid": module_id})
+        row["domain_ids"] = [r["domain_id"] for r in domain_rows]
+        row["domain_names"] = [r["domain_name"] for r in domain_rows]
+        return row
+
+    def get_modules_page(self, product_line_id: int = 0, domain_id: int = 0,
+                         status: int = -1, q: str = "", page: int = 1,
+                         page_size: int = 50) -> dict:
+        """模块列表（分页+筛选，含关联摘要）"""
+        conditions = ["m.is_deleted = FALSE"]
+        params = {}
+        if product_line_id:
+            conditions.append("p.product_line_id = :plid")
+            params["plid"] = product_line_id
+        if domain_id:
+            conditions.append("m.id IN (SELECT module_id FROM module_domains WHERE domain_id = :did)")
+            params["did"] = domain_id
+        if status >= 0:
+            conditions.append("m.status = :status")
+            params["status"] = status
+        if q:
+            conditions.append("m.name ILIKE :q")
+            params["q"] = f"%{q}%"
+        where = " AND ".join(conditions)
+
+        # 总数
+        count_row = self._execute_one(f"SELECT COUNT(*) AS c FROM modules m LEFT JOIN products p ON m.product_id = p.id WHERE {where}", params)
+        total = count_row["c"] if count_row else 0
+
+        # 数据
+        offset = (page - 1) * page_size
+        data_params = {**params, "limit": page_size, "offset": offset}
+        rows = self._execute("""
+            SELECT m.id, m.name, m.department_id, m.product_id, m.dev_owner, m.module_owner,
+                   m.status, m.updated_at,
+                   d.name as dept_name, p.name as product_name,
+                   pl.name as product_line_name
+            FROM modules m
+            LEFT JOIN departments d ON m.department_id = d.id
+            LEFT JOIN products p ON m.product_id = p.id
+            LEFT JOIN product_lines pl ON p.product_line_id = pl.id
+            WHERE """ + where + """
+            ORDER BY m.name
+            LIMIT :limit OFFSET :offset
+        """, data_params)
+
+        # 为每个模块附加 L3 部门摘要和业务域
+        for r in rows:
+            mid = r["id"]
+            # 部门摘要（最多显示5个名称，总数单独统计）
+            dept_rows = self._execute("""
+                SELECT d.name FROM module_departments md
+                JOIN departments d ON md.department_id = d.id
+                WHERE md.module_id = :mid ORDER BY md.is_primary DESC LIMIT 5
+            """, {"mid": mid})
+            dept_count_row = self._execute_one(
+                "SELECT COUNT(*) AS c FROM module_departments WHERE module_id = :mid", {"mid": mid})
+            r["dept_summary"] = "、".join(d["name"] for d in dept_rows)
+            r["dept_count"] = dept_count_row["c"] if dept_count_row else 0
+            domain_rows = self._execute("""
+                SELECT bd.name FROM module_domains md
+                JOIN business_domains bd ON md.domain_id = bd.id
+                WHERE md.module_id = :mid ORDER BY md.is_primary DESC LIMIT 3
+            """, {"mid": mid})
+            r["domain_summary"] = "、".join(d["name"] for d in domain_rows)
+
+        return {"modules": rows, "total": total, "page": page, "page_size": page_size}
+
+    def create_module(self, data: dict) -> dict:
+        """新增模块（含初始关联写入）"""
+        now = datetime.now().isoformat()
+        name = data.get("name", "").strip()
+        if not name:
+            return {"error": "模块名称必填"}
+        # 检查重名
+        existing = self._execute_one("SELECT id FROM modules WHERE name = :name AND is_deleted = FALSE", {"name": name})
+        if existing:
+            return {"error": f"模块 '{name}' 已存在"}
+
+        product_id = data.get("product_id")
+        department_id = data.get("department_id")
+        dept_name = self.get_department_name(department_id) if department_id else None
+        product_name = ""
+        product_line_name = ""
+        product_line_id = None
+        if product_id:
+            prod = self._execute_one("SELECT name, product_line_id FROM products WHERE id = :pid", {"pid": product_id})
+            if prod:
+                product_name = prod["name"]
+                product_line_id = prod.get("product_line_id")
+                if product_line_id:
+                    pl = self._execute_one("SELECT name FROM product_lines WHERE id = :plid", {"plid": product_line_id})
+                    product_line_name = pl["name"] if pl else ""
+
+        self._execute_write("""
+            INSERT INTO modules (name, department_id, product_id, dev_owner, module_owner, status, updated_at)
+            VALUES (:name, :did, :pid, :dev, :mod, :status, :now)
+        """, {"name": name, "did": department_id, "pid": product_id,
+              "dev": data.get("dev_owner", ""), "mod": data.get("module_owner", ""),
+              "status": data.get("status", 1), "now": now})
+
+        row = self._execute_one("SELECT id FROM modules WHERE name = :name AND is_deleted = FALSE ORDER BY id DESC LIMIT 1", {"name": name})
+        module_id = row["id"] if row else None
+        if not module_id:
+            return {"error": "模块创建失败"}
+
+        # 写入 L3 部门关联
+        dept_ids = data.get("dept_ids", [])
+        for i, did in enumerate(dept_ids):
+            self._execute_write("""
+                INSERT INTO module_departments (module_id, department_id, is_primary, source)
+                VALUES (:mid, :did, :primary, 'manual')
+                ON CONFLICT (module_id, department_id) DO NOTHING
+            """, {"mid": module_id, "did": did, "primary": i == 0})
+
+        # 同步回写旧字段
+        if dept_ids:
+            dept_names = [self.get_department_name(did) for did in dept_ids]
+            self._execute_write("""
+                UPDATE modules SET associated_dept_ids = :ids, associated_dept = :names, sub_dept = :primary
+                WHERE id = :mid
+            """, {"ids": ",".join(str(d) for d in dept_ids), "names": ",".join(dept_names),
+                  "primary": dept_names[0] if dept_names else "", "mid": module_id})
+
+        # 写入业务域关联
+        domain_ids = data.get("domain_ids", [])
+        for did in domain_ids:
+            self._execute_write("""
+                INSERT INTO module_domains (module_id, domain_id, is_primary)
+                VALUES (:mid, :did, TRUE) ON CONFLICT DO NOTHING
+            """, {"mid": module_id, "did": did})
+        if domain_ids:
+            domain_names = []
+            for did in domain_ids:
+                r = self._execute_one("SELECT name FROM business_domains WHERE id = :did", {"did": did})
+                if r: domain_names.append(r["name"])
+            self._execute_write("UPDATE modules SET business_domain = :domain WHERE id = :mid",
+                               {"domain": ",".join(domain_names), "mid": module_id})
+
+        return {"ok": True, "module_id": module_id}
+
+    def update_module(self, module_id: int, data: dict) -> dict:
+        """更新模块主表字段（name/product_id/department_id/dev_owner/module_owner/status）"""
+        sets = []
+        params = {"mid": module_id}
+        for k in ("name", "product_id", "department_id", "dev_owner", "module_owner", "status"):
+            if k in data:
+                sets.append(f"{k} = :{k}")
+                params[k] = data[k]
+        if not sets:
+            return {"ok": True}
+        sets.append("updated_at = now()")
+        self._execute_write(f"UPDATE modules SET {', '.join(sets)} WHERE id = :mid", params)
+        return {"ok": True}
+
+    def deprecate_module(self, module_id: int) -> bool:
+        """废弃模块（status=2）"""
+        row = self._execute_one("SELECT id FROM modules WHERE id = :mid AND is_deleted = FALSE", {"mid": module_id})
+        if not row:
+            return False
+        self._execute_write("UPDATE modules SET status = 2, updated_at = now() WHERE id = :mid", {"mid": module_id})
+        return True
+
+    def restore_module(self, module_id: int) -> bool:
+        """恢复模块（status=1）"""
+        row = self._execute_one("SELECT id FROM modules WHERE id = :mid AND is_deleted = FALSE", {"mid": module_id})
+        if not row:
+            return False
+        self._execute_write("UPDATE modules SET status = 1, updated_at = now() WHERE id = :mid", {"mid": module_id})
+        return True
+
+    def get_module_dept_ids(self, module_id: int) -> list[int]:
+        """获取模块的 L3 部门 ID 列表"""
+        rows = self._execute("""
+            SELECT department_id FROM module_departments
+            WHERE module_id = :mid ORDER BY is_primary DESC
+        """, {"mid": module_id})
+        return [r["department_id"] for r in rows]
+
+    def set_module_departments(self, module_id: int, dept_ids: list[int],
+                                primary_dept_id: int = None) -> dict:
+        """设置模块的 L3 部门关联（全量覆盖），同步回写旧字段"""
+        # 删除旧关联
+        self._execute_write("DELETE FROM module_departments WHERE module_id = :mid", {"mid": module_id})
+        # 写入新关联
+        if primary_dept_id is None and dept_ids:
+            primary_dept_id = dept_ids[0]
+        for did in dept_ids:
+            self._execute_write("""
+                INSERT INTO module_departments (module_id, department_id, is_primary, source)
+                VALUES (:mid, :did, :primary, 'manual')
+                ON CONFLICT (module_id, department_id) DO NOTHING
+            """, {"mid": module_id, "did": did, "primary": did == primary_dept_id})
+        # 同步回写旧字段
+        dept_names = [self.get_department_name(did) for did in dept_ids]
+        self._execute_write("""
+            UPDATE modules SET
+                associated_dept_ids = :ids,
+                associated_dept = :names,
+                sub_dept = :primary,
+                updated_at = now()
+            WHERE id = :mid
+        """, {"ids": ",".join(str(d) for d in dept_ids) if dept_ids else "",
+              "names": ",".join(dept_names) if dept_names else "",
+              "primary": dept_names[0] if dept_names else "",
+              "mid": module_id})
+        return {"ok": True}
+
+    def get_module_domain_ids(self, module_id: int) -> list[int]:
+        """获取模块的业务域 ID 列表"""
+        rows = self._execute("SELECT domain_id FROM module_domains WHERE module_id = :mid", {"mid": module_id})
+        return [r["domain_id"] for r in rows]
+
+    def set_module_domains(self, module_id: int, domain_ids: list[int]) -> dict:
+        """设置模块的业务域关联（全量覆盖），同步回写旧字段"""
+        self._execute_write("DELETE FROM module_domains WHERE module_id = :mid", {"mid": module_id})
+        for did in domain_ids:
+            self._execute_write("""
+                INSERT INTO module_domains (module_id, domain_id, is_primary)
+                VALUES (:mid, :did, TRUE) ON CONFLICT DO NOTHING
+            """, {"mid": module_id, "did": did})
+        # 同步回写 business_domain
+        domain_names = []
+        for did in domain_ids:
+            r = self._execute_one("SELECT name FROM business_domains WHERE id = :did", {"did": did})
+            if r: domain_names.append(r["name"])
+        self._execute_write("UPDATE modules SET business_domain = :domain, updated_at = now() WHERE id = :mid",
+                           {"domain": ",".join(domain_names) if domain_names else "", "mid": module_id})
+        return {"ok": True}
+
+    # ──── 业务域字典 CRUD ────
+
+    def get_all_domains(self) -> list[dict]:
+        """获取所有业务域"""
+        rows = self._execute("""
+            SELECT bd.*, COUNT(md.module_id) AS module_count
+            FROM business_domains bd
+            LEFT JOIN module_domains md ON bd.id = md.domain_id
+            GROUP BY bd.id ORDER BY bd.name
+        """)
+        return rows
+
+    def create_domain(self, name: str, code: str = "") -> dict:
+        """新增业务域"""
+        name = name.strip()
+        if not name:
+            return {"error": "业务域名称必填"}
+        existing = self._execute_one("SELECT id FROM business_domains WHERE name = :name", {"name": name})
+        if existing:
+            return {"error": f"业务域 '{name}' 已存在"}
+        self._execute_write("INSERT INTO business_domains (name, code) VALUES (:name, :code)", {"name": name, "code": code})
+        row = self._execute_one("SELECT id FROM business_domains WHERE name = :name", {"name": name})
+        return {"ok": True, "domain_id": row["id"] if row else None}
+
+    def update_domain(self, domain_id: int, name: str = None, code: str = None) -> bool:
+        """修改业务域"""
+        sets, params = [], {"did": domain_id}
+        if name:
+            sets.append("name = :name")
+            params["name"] = name.strip()
+        if code is not None:
+            sets.append("code = :code")
+            params["code"] = code
+        if not sets:
+            return False
+        sets.append("updated_at = now()")
+        self._execute_write(f"UPDATE business_domains SET {', '.join(sets)} WHERE id = :did", params)
+        return True
+
+    def delete_domain(self, domain_id: int) -> bool:
+        """删除业务域（仅允许无模块关联时删除）"""
+        refs = self._execute_one("SELECT COUNT(*) AS c FROM module_domains WHERE domain_id = :did", {"did": domain_id})
+        if refs and refs["c"] > 0:
+            return False
+        self._execute_write("DELETE FROM business_domains WHERE id = :did", {"did": domain_id})
+        return True
+
+    # ──── 级联预览 ────
+
+    def preview_cascade(self, module_id: int, changes: dict) -> dict:
+        """预览级联影响（不执行变更）"""
+        result = {"affected_documents": 0, "affected_faqs": 0,
+                  "affected_keyword_mappings": 0, "affected_document_departments": 0}
+        if "product_id" in changes or "department_id" in changes:
+            row = self._execute_one("""
+                SELECT
+                    (SELECT COUNT(*) FROM documents WHERE module_id = :mid AND is_deleted = FALSE) AS doc_cnt,
+                    (SELECT COUNT(*) FROM faqs WHERE module_id = :mid AND is_deleted = FALSE) AS faq_cnt,
+                    (SELECT COUNT(*) FROM keyword_mappings WHERE module_id = :mid AND is_deleted = FALSE) AS kw_cnt
+            """, {"mid": module_id})
+            if row:
+                result["affected_documents"] = row["doc_cnt"]
+                result["affected_faqs"] = row["faq_cnt"]
+                result["affected_keyword_mappings"] = row["kw_cnt"]
+        if "dept_ids" in changes:
+            row = self._execute_one("""
+                SELECT COUNT(DISTINCT dd.document_path) AS cnt
+                FROM document_departments dd
+                JOIN documents doc ON dd.document_id = doc.id
+                WHERE doc.module_id = :mid AND doc.is_deleted = FALSE
+            """, {"mid": module_id})
+            result["affected_document_departments"] = row["cnt"] if row else 0
+        return result
+
+    # ──── 变更审计 ────
+
+    def log_mapping_change(self, change_type: str, target_type: str, target_id: int,
+                            old_value: dict, new_value: dict, cascade_summary: dict,
+                            operator: str):
+        """写入映射变更审计日志"""
+        self._execute_write("""
+            INSERT INTO mapping_change_logs (change_type, target_type, target_id, old_value, new_value, cascade_summary, operator)
+            VALUES (:type, :ttype, :tid, :old, :new, :summary, :op)
+        """, {"type": change_type, "ttype": target_type, "tid": target_id,
+              "old": json.dumps(old_value, ensure_ascii=False) if old_value else None,
+              "new": json.dumps(new_value, ensure_ascii=False) if new_value else None,
+              "summary": json.dumps(cascade_summary, ensure_ascii=False) if cascade_summary else None,
+              "op": operator})
+
+    def get_mapping_change_logs(self, module_id: int = None, change_type: str = None,
+                                page: int = 1, page_size: int = 50) -> dict:
+        """查询变更审计日志"""
+        conditions = []
+        params = {}
+        if module_id:
+            conditions.append("target_type = 'module' AND target_id = :mid")
+            params["mid"] = module_id
+        if change_type:
+            conditions.append("change_type = :type")
+            params["type"] = change_type
+        where = " WHERE " + " AND ".join(conditions) if conditions else ""
+        count_row = self._execute_one(f"SELECT COUNT(*) AS c FROM mapping_change_logs{where}", params)
+        total = count_row["c"] if count_row else 0
+        offset = (page - 1) * page_size
+        data_params = {**params, "limit": page_size, "offset": offset}
+        rows = self._execute("""
+            SELECT * FROM mapping_change_logs""" + where + """
+            ORDER BY created_at DESC LIMIT :limit OFFSET :offset
+        """, data_params)
+        return {"logs": rows, "total": total, "page": page, "page_size": page_size}
 
     # ══════ 单例工厂（全项目共享连接池）══════
 

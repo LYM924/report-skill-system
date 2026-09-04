@@ -69,6 +69,30 @@ class Feedback(Base):
     created_at: Mapped[str] = mapped_column(String(30), default=lambda: datetime.now().isoformat())
 
 
+class LearningCandidate(Base):
+    """学习候选池：AI 回答 / 用户反馈中有价值的知识，经审核后沉淀为 FAQ"""
+    __tablename__ = "learning_candidates"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source: Mapped[str] = mapped_column(String(20), default="ai_answer")  # ai_answer | user_feedback | manual
+    query: Mapped[str] = mapped_column(Text, nullable=False)
+    answer: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[str] = mapped_column(Text, default="")
+    dept: Mapped[str] = mapped_column(String(100), default="")
+    module: Mapped[str] = mapped_column(String(200), default="")
+    keywords: Mapped[str] = mapped_column(Text, default="[]")
+    status: Mapped[int] = mapped_column(Integer, default=0)  # 0待审核/1已通过/2已拒绝/3已过期
+    review_note: Mapped[str] = mapped_column(Text, default="")
+    reviewed_by: Mapped[str] = mapped_column(String(100), default="")
+    reviewed_at: Mapped[str] = mapped_column(String(30), default="")
+    feedback_id: Mapped[int] = mapped_column(Integer, default=0)
+    session_id: Mapped[str] = mapped_column(String(50), default="")
+    faq_code: Mapped[str] = mapped_column(String(50), default="")
+    created_by: Mapped[str] = mapped_column(String(100), default="")
+    create_time: Mapped[str] = mapped_column(String(30), default=lambda: datetime.now().isoformat())
+    update_time: Mapped[str] = mapped_column(String(30), default=lambda: datetime.now().isoformat())
+
+
 class Report(Base):
     __tablename__ = "reports"
 

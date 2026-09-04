@@ -59,6 +59,11 @@ class Module(Base):
     department: Mapped[Optional[Department]] = relationship(back_populates="modules")
     product: Mapped[Optional[Product]] = relationship(back_populates="modules")
 
+    # 多对多部门关联（L3子部门列表，逗号分隔）
+    associated_dept: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    associated_dept_ids: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    sub_dept: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+
 
 class ModuleMenu(Base):
     __tablename__ = "module_menus"

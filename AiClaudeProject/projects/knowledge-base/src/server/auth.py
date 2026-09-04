@@ -56,3 +56,14 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
         return payload.get("sub")
     except JWTError:
         raise HTTPException(status_code=401, detail="认证凭证无效或已过期")
+
+
+async def require_admin(user: str = Depends(verify_token)):
+    """管理员权限校验依赖：仅 admin 角色可执行，否则返回 403。
+
+    用于文档上传/删除、FAQ 导入/删除、关键词管理、索引重建等管理操作。
+    """
+    from service import ai_config
+    if not ai_config.is_admin(user):
+        raise HTTPException(status_code=403, detail="仅管理员可执行此操作")
+    return user

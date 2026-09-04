@@ -13,9 +13,10 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional
 
-from auth import verify_token
+from auth import verify_token, require_admin
 from repository import get_repo
 from routes.health import record_write_failure
+from service.audit import log_action
 
 router = APIRouter(tags=["关键词"])
 
@@ -87,7 +88,7 @@ async def list_keywords(
 
 
 @router.post("/keywords")
-async def add_keyword(body: KeywordCreate, user: str = Depends(verify_token)):
+async def add_keyword(body: KeywordCreate, user: str = Depends(require_admin)):
     """添加关键词（写 keywords_v2 + keyword_mappings，软删复活）"""
     import main
     keyword = (body.keyword or "").strip()
@@ -118,12 +119,13 @@ async def add_keyword(body: KeywordCreate, user: str = Depends(verify_token)):
             "note": "手动添加", "mapping_id": result.get("mapping_id"),
             "keyword_id": result.get("keyword_id"),
         })
+    log_action(user, "keyword.add", target=keyword)
     return {"ok": True, "keyword": keyword, "mapping_id": result.get("mapping_id"),
             "keyword_id": result.get("keyword_id")}
 
 
 @router.put("/keywords")
-async def update_keyword(body: KeywordUpdate, user: str = Depends(verify_token)):
+async def update_keyword(body: KeywordUpdate, user: str = Depends(require_admin)):
     """更新关键词映射（mapping_id 定位；None/0 清空外键；改名冲突返回 409）"""
     import main
     if not body.mapping_id:
@@ -167,11 +169,12 @@ async def update_keyword(body: KeywordUpdate, user: str = Depends(verify_token))
     # 失效相关缓存
     from service.cache import cache_delete, KEYWORD_WRITE_KEYS
     cache_delete(*KEYWORD_WRITE_KEYS)
+    log_action(user, "keyword.update", target=str(body.mapping_id))
     return {"ok": True, "mapping_id": body.mapping_id, "keyword": body.keyword}
 
 
 @router.delete("/keywords")
-async def delete_keyword(body: KeywordDelete, user: str = Depends(verify_token)):
+async def delete_keyword(body: KeywordDelete, user: str = Depends(require_admin)):
     """删除关键词（mapping_id 删单映射；keyword_id 删全词；均为软删除）"""
     import main
     if not body.mapping_id and not body.keyword_id:
@@ -185,6 +188,7 @@ async def delete_keyword(body: KeywordDelete, user: str = Depends(verify_token))
         # 内存同步：移除该映射
         if main.search_engine is not None:
             main.search_engine.remove_mapping_from_map(body.mapping_id)
+        log_action(user, "keyword.delete", target=str(body.mapping_id))
         return {"ok": True, "mapping_id": body.mapping_id}
     else:
         ok = repo.delete_keyword(body.keyword_id)
@@ -192,4 +196,5 @@ async def delete_keyword(body: KeywordDelete, user: str = Depends(verify_token))
             return JSONResponse({"error": f"关键词 {body.keyword_id} 不存在或已删除"}, status_code=404)
         if main.search_engine is not None:
             main.search_engine.remove_keyword_from_map(body.keyword_id)
+        log_action(user, "keyword.delete", target=str(body.keyword_id))
         return {"ok": True, "keyword_id": body.keyword_id}

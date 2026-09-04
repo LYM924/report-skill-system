@@ -16,16 +16,19 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
 import main
-from auth import verify_token
+from auth import verify_token, require_admin
 from config import settings
 from repository import get_repo
 from repository.dept_mapping import get_dept_path, get_submodule_path
 from service.paths import safe_data_path
+from service.audit import log_action
 from routes.health import record_write_failure
 
 router = APIRouter(tags=["文档"])
 
 _mod_cache = None
+_mod_cache_time = 0
+_MOD_CACHE_TTL = 300  # 模块映射缓存 5 分钟自动过期（映射修改后最多延迟 5 分钟生效）
 
 IMAGE_TYPES = {
     "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif",
@@ -43,12 +46,14 @@ class UploadBody(BaseModel):
 
 
 def _get_module_map():
-    global _mod_cache
-    if _mod_cache is not None:
+    global _mod_cache, _mod_cache_time
+    import time
+    if _mod_cache is not None and (time.time() - _mod_cache_time) < _MOD_CACHE_TTL:
         return _mod_cache
     from repository import get_repo
     repo = get_repo()
     _mod_cache = repo.get_module_product_map()
+    _mod_cache_time = time.time()
     return _mod_cache
 
 
@@ -145,12 +150,16 @@ async def list_documents(
 
         d = {
             "id": doc_path,
+            "db_id": row.get("id"),
             "name": name or doc_path.split("/")[-1],
             "path": doc_path,
             "dept": doc_dept or cat.get("dept", ""),
-            "product": cat.get("product", doc_product),
-            "product_line": cat.get("product_line", doc_product_line),
-            "module": cat.get("module", doc_module),
+            "dept_id": row.get("dept_id") or None,
+            # 产品/产品线：文档自身记录优先，模块映射仅作兜底（避免 mod_map 覆盖文档实际值）
+            "product": doc_product or cat.get("product", ""),
+            "product_line": doc_product_line or cat.get("product_line", ""),
+            "module": doc_module or cat.get("module", ""),
+            "module_id": row.get("module_id") or None,
             "keywords": doc_keywords,
             "updated": updated,
         }
@@ -238,8 +247,8 @@ async def get_image(path: str = Query(...), user: str = Depends(verify_token)):
     return Response(content=full_path.read_bytes(), media_type=IMAGE_TYPES[ext])
 
 
-def _update_frontmatter(content: str, dept: str, product: str, keywords: str, new_title: str) -> str:
-    """更新/创建 frontmatter 中的部门、产品、关键词、标题字段"""
+def _update_frontmatter(content: str, dept: str, product: str, keywords: str, new_title: str, module: str = "") -> str:
+    """更新/创建 frontmatter 中的部门、模块、产品、关键词、标题字段"""
     has_fm = content.startswith("---")
     if has_fm:
         parts = content.split("---", 2)
@@ -248,6 +257,8 @@ def _update_frontmatter(content: str, dept: str, product: str, keywords: str, ne
     if has_fm:
         fm_lines = parts[1].split("\n")
         updated = {"dept": dept, "product": product, "keywords": keywords, "title": new_title}
+        if module:
+            updated["module"] = module
         seen = set()
         out = []
         for line in fm_lines:
@@ -258,9 +269,10 @@ def _update_frontmatter(content: str, dept: str, product: str, keywords: str, ne
                     continue
                 prefixes = {
                     "dept": ("dept:", "department:"),
-                    "product": ("product:", "domain:", "module:"),
+                    "product": ("product:", "domain:"),
                     "keywords": ("keywords:",),
                     "title": ("title:",),
+                    "module": ("module:",),
                 }[key]
                 if stripped.startswith(prefixes):
                     out.append(f"{key}: {val}")
@@ -279,6 +291,8 @@ def _update_frontmatter(content: str, dept: str, product: str, keywords: str, ne
             fm += f"title: {new_title}\n"
         if dept:
             fm += f"dept: {dept}\n"
+        if module:
+            fm += f"module: {module}\n"
         if product:
             fm += f"product: {product}\n"
         if keywords:
@@ -293,15 +307,18 @@ async def update_document(
     dept: str = Query(""),
     dept_ids: str = Query(""),
     product: str = Query(""),
+    module: str = Query(""),
+    module_id: int = Query(0),
     keywords: str = Query(""),
     new_filename: str = Query(""),
-    user: str = Depends(verify_token),
+    user: str = Depends(require_admin),
 ):
-    """文档元数据更新：改名 / frontmatter 字段 / 部门关联（document_departments）
+    """文档元数据更新：改名 / frontmatter 字段 / 部门关联 / 模块关联
 
     DB 优先原则：
     - 文件缺失时不直接 404，先查 DB 有记录则继续（允许后续重建恢复文件）
     - 改名后同步更新 DB documents.path 和内存 kb_docs（防三方不一致）
+    - 编辑后同步更新 documents 表的 dept/dept_id/module/module_id/product/product_line 列（立即生效）
     """
     full_path = safe_data_path(path)
     file_exists = full_path and full_path.exists()
@@ -346,7 +363,7 @@ async def update_document(
     if file_exists:
         content = full_path.read_text(encoding="utf-8")
         new_title = new_filename.replace(".md", "") if new_filename else ""
-        content = _update_frontmatter(content, dept, product, keywords, new_title)
+        content = _update_frontmatter(content, dept, product, keywords, new_title, module=module)
         full_path.write_text(content, encoding="utf-8")
 
     # 3. DB 同步：改名后更新 DB path + 重新 save_document（确保 DB 与文件一致）
@@ -369,14 +386,69 @@ async def update_document(
                 })
 
     # 4. 部门关联（document_departments）
+    resolved_dept_ids = []
     if dept_ids:
         try:
-            repo.set_document_departments(new_path,
-                                          [int(i) for i in dept_ids.split(",") if i.strip().isdigit()])
+            resolved_dept_ids = [int(i) for i in dept_ids.split(",") if i.strip().isdigit()]
+            repo.set_document_departments(new_path, resolved_dept_ids)
         except Exception:
             record_write_failure("doc_dept_link")
 
-    # 5. 后台重建索引（确保 BM25/向量索引与 DB 一致）
+    # 5. 解析 module_id / dept_id（ID 优先，名称回退）
+    resolved_module_id = module_id or None
+    if not resolved_module_id and module:
+        resolved_module_id = repo.resolve_module_id(module)
+    resolved_dept_id = resolved_dept_ids[-1] if resolved_dept_ids else None
+    if not resolved_dept_id and dept:
+        resolved_dept_id = repo.resolve_dept_id(dept)
+
+    # 6. 从模块映射表回填缺失字段（选了模块但没手动填 dept/product 时自动补全）
+    mod_map = _get_module_map()
+    mod_info = mod_map.get(module, {}) if module else {}
+    if module and mod_info:
+        # dept 回填优先用 L3 关联部门（与 associated_dept_ids 对应），而非 L2
+        if not dept and mod_info.get("associated_dept"):
+            dept = mod_info["associated_dept"].split(",")[0].strip()
+        if not dept and mod_info.get("dept"):
+            dept = mod_info["dept"]
+        if not product and mod_info.get("product"):
+            product = mod_info["product"]
+        if not resolved_dept_id and mod_info.get("associated_dept_ids"):
+            # 取第一个关联的L3部门ID
+            first_id = mod_info["associated_dept_ids"].split(",")[0].strip()
+            if first_id.isdigit():
+                resolved_dept_id = int(first_id)
+        if not resolved_dept_id and dept:
+            resolved_dept_id = repo.resolve_dept_id(dept)
+        # 如果 document_departments 关联为空，从模块关联部门自动建立
+        if not resolved_dept_ids and mod_info.get("associated_dept_ids"):
+            try:
+                auto_dept_ids = [int(i.strip()) for i in mod_info["associated_dept_ids"].split(",") if i.strip().isdigit()]
+                if auto_dept_ids:
+                    repo.set_document_departments(new_path, auto_dept_ids)
+                    resolved_dept_ids = auto_dept_ids
+                    if not resolved_dept_id:
+                        resolved_dept_id = auto_dept_ids[-1]
+            except Exception:
+                pass
+
+    # 7. 同步更新 documents 表元数据（确保列表立即显示最新值）
+    resolved_product = product or mod_info.get("product", "")
+    resolved_product_line = mod_info.get("product_line", "")
+    try:
+        repo.update_document_meta(
+            new_path,
+            dept=dept or None,
+            dept_id=resolved_dept_id,
+            module=module or None,
+            module_id=resolved_module_id,
+            product=resolved_product or None,
+            product_line=resolved_product_line or None,
+        )
+    except Exception as e:
+        logging.getLogger(__name__).warning("documents 元数据更新失败 path=%s: %s", new_path, e)
+
+    # 7. 后台重建索引（确保 BM25/向量索引与 DB 一致）
     def _rebuild():
         try:
             if main.search_engine is not None:
@@ -389,7 +461,101 @@ async def update_document(
     from service.cache import cache_delete, DOCS_WRITE_KEYS
     cache_delete(*DOCS_WRITE_KEYS)
 
+    log_action(user, "doc.update", target=path)
     return {"ok": True, "path": new_path, "renamed": renamed}
+
+
+@router.get("/document/dept-ids")
+async def get_document_dept_ids(
+    path: str = Query(..., description="文档路径"),
+    user: str = Depends(verify_token),
+):
+    """获取文档关联的部门 ID 列表（从 document_departments 表）"""
+    repo = get_repo()
+    ids = repo.get_document_dept_ids(path)
+    return {"dept_ids": ids}
+
+
+@router.get("/document/delete")
+async def delete_document(
+    id: int = Query(0, description="文档ID（优先）"),
+    path: str = Query("", description="文档路径（ID缺失时使用）"),
+    user: str = Depends(require_admin),
+):
+    """删除文档：DB 软删除（主）+ 清理关联 + 物理删文件（辅）+ 重建索引
+
+    入参优先级：id > path。ID 为整数无编码歧义，推荐使用。
+
+    全链路清理：
+    1. documents 表 is_deleted = TRUE
+    2. document_departments 关联清除
+    3. keyword_mappings 关联清除
+    4. 物理删 .md 文件（缺失不阻断）
+    5. 内存 kb_docs 移除
+    6. 缓存失效
+    7. 后台重建 BM25/向量索引
+    """
+    repo = get_repo()
+
+    # ID 优先：按 id 查出 path，再执行删除
+    if id:
+        row = repo._execute_one(
+            "SELECT path FROM documents WHERE id = :id AND is_deleted = FALSE",
+            {"id": id}
+        )
+        if not row:
+            return JSONResponse({"error": "文档不存在"}, status_code=404)
+        path = row["path"]
+
+    if not path:
+        return JSONResponse({"error": "需要提供 id 或 path"}, status_code=422)
+
+    # 路径安全验证
+    full_path = safe_data_path(path)
+    if not full_path or not str(full_path).startswith(str(settings.DATA_DIR / "knowledge")):
+        return JSONResponse({"error": "路径非法"}, status_code=400)
+
+    # DB 软删除（主操作）
+    repo = get_repo()
+    result = repo.delete_document(path)
+    if not result.get("ok"):
+        return JSONResponse({"error": result.get("error", "文档不存在")}, status_code=404)
+
+    # 清理关联数据
+    try:
+        repo.clear_document_departments(path)
+    except Exception:
+        record_write_failure("doc_dept_clear")
+    try:
+        repo.clear_document_keywords(path)
+    except Exception:
+        record_write_failure("doc_keyword_clear")
+
+    # 物理删文件（辅，缺失不阻断）
+    if full_path.exists():
+        full_path.unlink()
+    else:
+        logging.getLogger(__name__).warning("文档文件已缺失，仅 DB 软删除: %s", path)
+
+    # 清理内存索引
+    if main.search_engine is not None:
+        main.search_engine.remove_kb_doc(path)
+
+    # 失效缓存
+    from service.cache import cache_delete, DOCS_WRITE_KEYS
+    cache_delete(*DOCS_WRITE_KEYS)
+
+    # 后台重建索引
+    def _rebuild():
+        try:
+            if main.search_engine is not None:
+                main.search_engine = main.search_engine.rebuild_all()
+        except Exception:
+            pass
+    threading.Thread(target=_rebuild, daemon=True).start()
+
+    log_action(user, "doc.delete", target=path)
+    return {"ok": True, "message": "已删除"}
 
 
 def _body_is_intact(body: str, final: str) -> bool:
@@ -684,12 +850,13 @@ imported: {now_iso}
 
 
 @router.post("/document/upload")
-async def upload_document(body: UploadBody, user: str = Depends(verify_token)):
+async def upload_document(body: UploadBody, user: str = Depends(require_admin)):
     """上传文档（POST JSON body）"""
     result = await _upload_document(body.filename, body.content, body.dept, body.module,
                                     dept_id=body.dept_id, module_id=body.module_id)
     if "error" in result:
         return JSONResponse(result, status_code=422)
+    log_action(user, "doc.upload", target=result.get("filename", body.filename))
     return result
 
 
@@ -701,11 +868,12 @@ async def upload_document_get(
     module: str = Query(""),
     dept_id: int = Query(0),
     module_id: int = Query(0),
-    user: str = Depends(verify_token),
+    user: str = Depends(require_admin),
 ):
     """上传文档（GET query，兼容旧客户端）"""
     result = await _upload_document(filename, content, dept, module,
                                     dept_id=dept_id, module_id=module_id)
     if "error" in result:
         return JSONResponse(result, status_code=422)
+    log_action(user, "doc.upload", target=result.get("filename", filename))
     return result
